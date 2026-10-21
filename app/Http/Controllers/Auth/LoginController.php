@@ -20,8 +20,9 @@ class LoginController extends Controller
             'password' => 'required',
         ]);
 
-        if (Auth::attempt($credentials, $request->filled('remember'))) {
+        if (Auth::attempt([...$credentials, 'is_active' => true], $request->boolean('remember'))) {
             $request->session()->regenerate();
+
             return redirect()->intended('/dashboard');
         }
 
@@ -35,6 +36,7 @@ class LoginController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
         return redirect('/login');
     }
 }

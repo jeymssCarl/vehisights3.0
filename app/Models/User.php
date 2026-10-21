@@ -22,6 +22,7 @@ class User extends Authenticatable
         'last_name',
         'name',
         'email',
+        'email_verified_at',
         'password',
         'department',
         'role',
@@ -46,11 +47,17 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'is_active' => 'boolean',
     ];
 
     // =============================================
     // RELATIONSHIPS
     // =============================================
+
+    public function socialAccounts()
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
 
     /**
      * Get the cameras created by this user.
@@ -157,6 +164,6 @@ class User extends Authenticatable
      */
     public function getFullNameAttribute()
     {
-        return $this->first_name . ' ' . $this->last_name;
+        return $this->first_name.' '.$this->last_name;
     }
 }

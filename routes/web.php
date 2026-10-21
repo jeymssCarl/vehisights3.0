@@ -1,15 +1,16 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
-use App\Http\Controllers\ManualCountController;
-use App\Http\Controllers\SessionController;
+use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\AutoRecordsController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\ManualCountController;
 use App\Http\Controllers\PredictionController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\SessionController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -24,11 +25,18 @@ Route::get('/', function () {
 
 // Login routes
 Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
-Route::post('/login', [LoginController::class, 'login']);
+Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:6,1');
 
 // Registration routes
 Route::get('/register', [RegisterController::class, 'showRegistrationForm'])->name('register');
-Route::post('/register', [RegisterController::class, 'register']);
+Route::post('/register', [RegisterController::class, 'register'])->middleware('throttle:5,1');
+
+Route::get('/auth/google/redirect', [SocialAuthController::class, 'redirect'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.redirect');
+Route::get('/auth/google/callback', [SocialAuthController::class, 'callback'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.callback');
 
 // Password reset (placeholder – will implement later)
 Route::get('/forgot-password', function () {
@@ -48,10 +56,10 @@ Route::middleware(['auth'])->group(function () {
 
     // Main application pages
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    
+
     // AJAX endpoint for dashboard data (NO FLASH - loads data dynamically)
     Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->name('dashboard.data');
-    
+
     Route::get('/live-traffic', function () {
         return view('live-traffic');
     })->name('live-traffic');
@@ -68,7 +76,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/auto-records', [AutoRecordsController::class, 'index'])->name('auto-records');
     Route::put('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'update'])->name('auto-sessions.update');
     Route::delete('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'destroy'])->name('auto-sessions.destroy');
-    
+
     // DELETE ALL auto sessions (MUST come BEFORE the {autoSession} route)
     Route::delete('/auto-sessions/delete-all', [AutoRecordsController::class, 'destroyAll'])->name('auto-sessions.delete-all');
 
@@ -101,17 +109,16 @@ Route::middleware(['auth'])->group(function () {
 
     // Store manual count (AJAX)
     Route::post('/manual-count/store', [ManualCountController::class, 'store'])->name('manual-count.store');
-    
+
     // EDIT & DELETE routes for sessions (manual records)
     // IMPORTANT: delete-all route must come BEFORE {session} route to avoid conflict
     Route::delete('/sessions/delete-all', [SessionController::class, 'destroyAll'])->name('sessions.delete-all');
     Route::put('/sessions/{session}', [SessionController::class, 'update'])->name('sessions.update');
     Route::delete('/sessions/{session}', [SessionController::class, 'destroy'])->name('sessions.destroy');
-    
+
     // FULL UPDATE route for editing vehicle counts (must come BEFORE {session} route)
     Route::put('/sessions/{session}/full-update', [SessionController::class, 'fullUpdate'])->name('sessions.full-update');
 });
-
 
 /*
 |--------------------------------------------------------------------------
@@ -121,3 +128,4 @@ Route::middleware(['auth'])->group(function () {
 // Route::fallback(function () {
 //     return view('errors.404');
 // });
+2

@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class RegisterController extends Controller
 {
@@ -17,29 +17,30 @@ class RegisterController extends Controller
 
     public function register(Request $request)
     {
+        $request->merge([
+            'email' => Str::lower(trim((string) $request->input('email'))),
+        ]);
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
-            'last_name'  => 'required|string|max:255',
-            'email'      => 'required|email|unique:users',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users',
             'department' => 'required|string|in:City Planning',
-            'role'       => 'required|in:super_admin,admin,analyst,viewer',
-            'password'   => 'required|min:8|confirmed',
-            'terms'      => 'accepted',
+            'password' => 'required|min:8|confirmed',
+            'terms' => 'accepted',
         ]);
 
-        $user = User::create([
+        User::create([
             'first_name' => $validated['first_name'],
-            'last_name'  => $validated['last_name'],
-            'name'       => $validated['first_name'] . ' ' . $validated['last_name'], // Add this line
-            'email'      => $validated['email'],
+            'last_name' => $validated['last_name'],
+            'name' => $validated['first_name'].' '.$validated['last_name'], // Add this line
+            'email' => $validated['email'],
             'department' => 'City Planning',
-            'role'       => $validated['role'],
-            'password'   => Hash::make($validated['password']),
-            'is_active'  => true,
+            'role' => 'viewer',
+            'password' => Hash::make($validated['password']),
+            'is_active' => false,
         ]);
 
-        Auth::login($user);
-
-        return redirect('/dashboard');
+        return to_route('login')->with('status', 'Account created. Please wait for administrator approval before signing in.');
     }
 }

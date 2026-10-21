@@ -27,10 +27,10 @@
             <div class="form-header">
                 <div class="admin-badge">
                     <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    Admin Registration
+                    Account Registration
                 </div>
                 <h1>Create account</h1>
-                <p>Set up your administrator credentials.</p>
+                <p>Set up your LGU account credentials.</p>
             </div>
 
             <form method="POST" action="{{ route('register') }}" id="registerForm">
@@ -62,17 +62,12 @@
                         @error('department') <small class="field-error">{{ $message }}</small> @enderror
                     </div>
                     <div class="field">
-                        <label for="role">Role</label>
+                        <label for="role">Initial Role</label>
                         <div class="select-wrap">
-                            <select id="role" name="role" required>
-                                <option value="" disabled {{ old('role') ? '' : 'selected' }}>Select…</option>
-                                <option value="super_admin" {{ old('role') == 'super_admin' ? 'selected' : '' }}>Super Admin</option>
-                                <option value="admin" {{ old('role') == 'admin' ? 'selected' : '' }}>Admin</option>
-                                <option value="analyst" {{ old('role') == 'analyst' ? 'selected' : '' }}>Data Analyst</option>
-                                <option value="viewer" {{ old('role') == 'viewer' ? 'selected' : '' }}>Viewer</option>
+                            <select id="role" disabled>
+                                <option selected>Viewer (pending approval)</option>
                             </select>
                         </div>
-                        @error('role') <small class="field-error">{{ $message }}</small> @enderror
                     </div>
                 </div>
 
