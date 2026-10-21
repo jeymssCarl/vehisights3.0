@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\GoogleVerificationController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\SocialAuthController;
@@ -37,6 +38,14 @@ Route::get('/auth/google/redirect', [SocialAuthController::class, 'redirect'])
 Route::get('/auth/google/callback', [SocialAuthController::class, 'callback'])
     ->middleware('throttle:20,1')
     ->name('oauth.callback');
+Route::get('/auth/google/verify', [GoogleVerificationController::class, 'show'])
+    ->name('google.verify.notice');
+Route::post('/auth/google/verify', [GoogleVerificationController::class, 'verify'])
+    ->middleware('throttle:6,1')
+    ->name('google.verify');
+Route::post('/auth/google/verify/resend', [GoogleVerificationController::class, 'resend'])
+    ->middleware('throttle:3,10')
+    ->name('google.verify.resend');
 
 // Password reset (placeholder – will implement later)
 Route::get('/forgot-password', function () {
@@ -128,4 +137,3 @@ Route::middleware(['auth'])->group(function () {
 // Route::fallback(function () {
 //     return view('errors.404');
 // });
-2

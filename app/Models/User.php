@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'email_verified_at',
+        'google_verified_at',
         'password',
         'department',
         'role',
@@ -46,6 +47,7 @@ class User extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'google_verified_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
     ];
@@ -57,6 +59,11 @@ class User extends Authenticatable
     public function socialAccounts()
     {
         return $this->hasMany(SocialAccount::class);
+    }
+
+    public function verificationCode()
+    {
+        return $this->hasOne(EmailVerificationCode::class);
     }
 
     /**

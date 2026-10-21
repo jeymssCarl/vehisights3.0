@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\GoogleVerificationCodeMail;
 use App\Models\User;
 use Tests\TestCase;
 
@@ -46,5 +47,27 @@ class SocialAuthenticationTest extends TestCase
             ->assertRedirect('/login');
 
         $this->assertGuest();
+    }
+
+    public function test_google_verification_page_requires_an_oauth_session(): void
+    {
+        $this->get('/auth/google/verify')
+            ->assertRedirect(route('login'))
+            ->assertSessionHasErrors('oauth');
+    }
+
+    public function test_google_verification_submission_requires_an_oauth_session(): void
+    {
+        $this->post('/auth/google/verify', ['code' => '123456'])
+            ->assertRedirect(route('login'))
+            ->assertSessionHasErrors('oauth');
+    }
+
+    public function test_google_verification_email_contains_the_code(): void
+    {
+        $html = (new GoogleVerificationCodeMail('123456'))->render();
+
+        $this->assertStringContainsString('123456', $html);
+        $this->assertStringContainsString('expires in 10 minutes', $html);
     }
 }

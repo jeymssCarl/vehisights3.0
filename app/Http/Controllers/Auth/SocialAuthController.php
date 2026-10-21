@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\SocialAccount;
 use App\Models\User;
+use App\Services\GoogleVerificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,7 +28,7 @@ class SocialAuthController extends Controller
         return Socialite::driver('google')->redirect();
     }
 
-    public function callback(Request $request): RedirectResponse
+    public function callback(Request $request, GoogleVerificationService $verificationService): RedirectResponse
     {
         if (! $this->googleIsConfigured()) {
             return to_route('login')->withErrors([
@@ -97,6 +98,28 @@ class SocialAuthController extends Controller
 
                 return $user;
             });
+
+            if (! $user->google_verified_at) {
+                $request->session()->regenerate();
+                $request->session()->put('google_verification_user_id', $user->getKey());
+
+                try {
+                    $verificationService->send($user, true);
+                } catch (Throwable $exception) {
+                    $request->session()->forget('google_verification_user_id');
+
+                    Log::warning('Google verification email could not be sent.', [
+                        'user_id' => $user->getKey(),
+                        'exception' => $exception,
+                    ]);
+
+                    return to_route('login')->withErrors([
+                        'oauth' => 'Your Google account was connected, but the verification email could not be sent. Please contact the administrator or try again shortly.',
+                    ]);
+                }
+
+                return to_route('google.verify.notice');
+            }
 
             Auth::login($user, true);
             $request->session()->regenerate();
