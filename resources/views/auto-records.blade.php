@@ -6,7 +6,7 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <title>VehiSights — Auto Records</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-@vite('resources/css/pages/auto-records.css')
+@vite(['resources/css/pages/auto-records.css', 'resources/js/ui-enhancements.js'])
 </head>
 <body>
 <div class="layout">
@@ -52,23 +52,23 @@
     </div>
 
     <div class="content">
-      <!-- FILTER BAR with simplified Date Pills (Today, This Month, Custom) -->
+      <!-- Search and date-range filters -->
       <div class="filter-bar">
         <div class="filter-left">
           <div class="search-wrap">
             <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="searchInput" class="search-input" placeholder="Search by camera name, IP or location...">
           </div>
-          <div class="date-pills">
-            <button class="date-pill date-pill-active" data-date="today">Today</button>
-            <button class="date-pill" data-date="this_month">This Month</button>
-            <button id="customDateBtn" class="date-pill" style="display: flex; align-items: center; gap: 4px;">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              Custom
-            </button>
+          <div class="records-date-filter" aria-label="Filter records by date range">
+            <span class="date-filter-label"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Date Range</span>
+            <input type="date" id="startDateFilter" class="date-filter-input" aria-label="Start date">
+            <span class="date-filter-arrow" aria-hidden="true">→</span>
+            <input type="date" id="endDateFilter" class="date-filter-input" aria-label="End date">
+            <button type="button" id="applyDateFilterBtn" class="btn-apply-filter">Apply Filter</button>
+            <button type="button" id="todayFilterBtn" class="btn-today-filter">Today</button>
           </div>
         </div>
-        <button id="deleteAllBtn" class="btn-delete-all">
+        <button id="deleteAllBtn" class="btn-delete-all" type="button" disabled title="No records to delete">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           Delete All
         </button>
@@ -184,25 +184,6 @@
         <button class="btn-secondary" id="confirmDeleteAllCancelBtn">Cancel</button>
         <button class="btn-primary" id="confirmDeleteAllOkBtn" style="background: var(--red);">Delete All</button>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- CUSTOM DATE MODAL -->
-<div id="customDateModal" class="date-modal-overlay">
-  <div class="custom-date-modal">
-    <h3>Select Date Range</h3>
-    <div class="date-input-group">
-      <label>Start Date</label>
-      <input type="date" id="modal_start_date" value="{{ date('Y-m-d') }}">
-    </div>
-    <div class="date-input-group">
-      <label>End Date</label>
-      <input type="date" id="modal_end_date" value="{{ date('Y-m-d') }}">
-    </div>
-    <div class="date-modal-actions">
-      <button class="date-modal-btn date-modal-btn-secondary" id="closeDateModalBtn">Cancel</button>
-      <button class="date-modal-btn date-modal-btn-primary" id="applyDateModalBtn">Apply</button>
     </div>
   </div>
 </div>

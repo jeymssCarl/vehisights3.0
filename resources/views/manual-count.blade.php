@@ -7,7 +7,7 @@
 <title>VehiSights — Manual Counting</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-@vite('resources/css/pages/manual-count.css')
+@vite(['resources/css/pages/manual-count.css', 'resources/js/ui-enhancements.js'])
 </head>
 <body>
 <div class="layout">

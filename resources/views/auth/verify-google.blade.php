@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VehiSights — Verify Email</title>
-    @vite('resources/css/pages/auth-login.css')
+    @vite(['resources/css/pages/auth-login.css', 'resources/js/ui-enhancements.js'])
 </head>
 <body>
 <div class="shell">

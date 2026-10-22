@@ -6,7 +6,7 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <title>VehiSights — Automatic Counting</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-@vite('resources/css/pages/automatic-count.css')
+@vite(['resources/css/pages/automatic-count.css', 'resources/js/ui-enhancements.js'])
 </head>
 <body>
 <div class="layout">

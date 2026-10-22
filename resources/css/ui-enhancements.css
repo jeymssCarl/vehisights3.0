@@ -1,0 +1,285 @@
+:root {
+  --ui-accent: var(--maroon, #7b1d1d);
+  --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ui-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.07);
+  --ui-shadow-lifted: 0 18px 42px rgba(15, 23, 42, 0.12);
+  --ui-focus-ring: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 20%, transparent);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ui-accent) 24%, transparent);
+}
+
+/* Page arrival: restrained movement makes hierarchy clear without slowing use. */
+.ui-enhanced .sidebar {
+  animation: ui-sidebar-in 520ms var(--ui-ease-out) both;
+}
+
+.ui-enhanced .topbar {
+  animation: ui-topbar-in 460ms var(--ui-ease-out) both;
+  transition: box-shadow 220ms ease, background-color 220ms ease,
+    border-color 220ms ease, backdrop-filter 220ms ease;
+}
+
+.ui-enhanced .topbar.ui-is-scrolled {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px) saturate(135%);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+}
+
+.ui-enhanced .content > * {
+  animation: ui-content-in 520ms var(--ui-ease-out) both;
+}
+
+.ui-enhanced .content > :nth-child(1) { animation-delay: 50ms; }
+.ui-enhanced .content > :nth-child(2) { animation-delay: 110ms; }
+.ui-enhanced .content > :nth-child(3) { animation-delay: 170ms; }
+.ui-enhanced .content > :nth-child(4) { animation-delay: 230ms; }
+.ui-enhanced .content > :nth-child(n + 5) { animation-delay: 290ms; }
+
+@keyframes ui-sidebar-in {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes ui-topbar-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ui-content-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Navigation and brand feedback. */
+.ui-enhanced .nav-item {
+  position: relative;
+  transition: color 180ms ease, background-color 180ms ease,
+    box-shadow 180ms ease, transform 180ms var(--ui-ease-out);
+}
+
+.ui-enhanced .nav-item svg {
+  transition: transform 220ms var(--ui-ease-spring), stroke 180ms ease;
+}
+
+.ui-enhanced .nav-item:hover {
+  transform: translateX(3px);
+}
+
+.ui-enhanced .nav-item:hover svg,
+.ui-enhanced .nav-item.active svg {
+  transform: scale(1.08);
+}
+
+.ui-enhanced .nav-item.active {
+  box-shadow: inset 3px 0 0 var(--ui-accent);
+}
+
+.ui-enhanced .brand-icon {
+  transition: transform 260ms var(--ui-ease-spring), box-shadow 220ms ease;
+}
+
+.ui-enhanced .sidebar-brand:hover .brand-icon,
+.ui-enhanced .brand-mark:hover .brand-icon {
+  transform: rotate(-5deg) scale(1.06);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* Surface depth stays subtle and is only used on pointer-capable devices. */
+.ui-enhanced .layout :where(
+  .stat-card,
+  .panel,
+  .form-panel,
+  .kpi,
+  .card,
+  .table-wrapper,
+  .chart-panel,
+  .table-panel,
+  .filters-bar,
+  .filter-bar,
+  .toolbar,
+  .settings-group,
+  .placeholder-container
+) {
+  transition: transform 220ms var(--ui-ease-out), box-shadow 220ms ease,
+    border-color 220ms ease, background-color 220ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-enhanced .layout :where(.stat-card, .kpi, .panel, .form-panel, .chart-panel, .table-panel):hover {
+    transform: translateY(-3px);
+    box-shadow: var(--ui-shadow-lifted);
+  }
+
+  .ui-enhanced tbody tr {
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .ui-enhanced tbody tr:hover {
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ui-accent) 65%, transparent);
+  }
+}
+
+/* Buttons feel responsive while retaining all existing handlers and semantics. */
+.ui-enhanced :where(
+  .btn-primary,
+  .btn-secondary,
+  .btn-submit,
+  .icon-btn,
+  .logout-btn,
+  .date-pill,
+  .pill,
+  .tab,
+  .counter-btn,
+  .action-icon,
+  .act-btn,
+  .modal-close
+) {
+  transition: transform 160ms var(--ui-ease-out), box-shadow 180ms ease,
+    background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.ui-enhanced :where(.btn-primary, .btn-submit) {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.ui-enhanced :where(.btn-primary, .btn-submit)::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.2) 48%, transparent 76%);
+  content: '';
+  transform: translateX(-120%);
+  transition: transform 520ms var(--ui-ease-out);
+}
+
+.ui-enhanced :where(.btn-primary, .btn-submit):hover::after {
+  transform: translateX(120%);
+}
+
+.ui-enhanced :where(button, [role='button'], .btn-primary, .btn-secondary, .btn-submit, .nav-item):active {
+  transform: scale(0.975);
+}
+
+.ui-enhanced .ui-pressed {
+  animation: ui-control-press 240ms var(--ui-ease-out);
+}
+
+@keyframes ui-control-press {
+  50% { transform: scale(0.965); }
+}
+
+/* Clear keyboard focus and polished form affordances. */
+.ui-enhanced :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-accent) 76%, white);
+  outline-offset: 2px;
+  box-shadow: var(--ui-focus-ring);
+}
+
+.ui-enhanced :where(input, select, textarea) {
+  transition: border-color 180ms ease, box-shadow 180ms ease,
+    background-color 180ms ease, transform 180ms var(--ui-ease-out);
+}
+
+.ui-enhanced :where(input, select, textarea):focus {
+  transform: translateY(-1px);
+}
+
+.ui-enhanced :where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+  filter: saturate(0.65);
+  opacity: 0.62;
+}
+
+/* Modal movement is unified while preserving the page scripts' active class. */
+.ui-enhanced .modal-overlay.active .modal {
+  animation: ui-modal-in 300ms var(--ui-ease-spring) both;
+}
+
+@keyframes ui-modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ui-enhanced .toast.show {
+  animation: ui-toast-in 360ms var(--ui-ease-spring) both;
+}
+
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Refined scrolling without hiding the native affordance. */
+.ui-enhanced * {
+  scrollbar-color: color-mix(in srgb, var(--ui-accent) 42%, #9ca3af) transparent;
+  scrollbar-width: thin;
+}
+
+.ui-enhanced *::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.ui-enhanced *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ui-enhanced *::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ui-accent) 34%, #9ca3af);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.ui-enhanced *::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ui-accent) 58%, #6b7280);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Authentication surfaces get the same polish without changing their layout. */
+.ui-enhanced body:not(:has(.layout)) .card {
+  box-shadow: 0 24px 65px -22px rgba(43, 17, 17, 0.35), 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.ui-enhanced body:not(:has(.layout)) .panel-right {
+  background-image: radial-gradient(circle at 100% 0%, rgba(123, 29, 29, 0.055), transparent 34%);
+}
+
+@media (max-width: 700px) {
+  .ui-enhanced .content > * {
+    animation-delay: 40ms;
+  }
+
+  .ui-enhanced .nav-item:hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .ui-enhanced *,
+  .ui-enhanced *::before,
+  .ui-enhanced *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VehiSights — Create Account</title>
-    @vite('resources/css/pages/auth-register.css')
+    @vite(['resources/css/pages/auth-register.css', 'resources/js/ui-enhancements.js'])
 </head>
 <body>
 <div class="shell">

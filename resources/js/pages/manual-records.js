@@ -11,10 +11,13 @@ toggle.addEventListener('click', () => {
 
 const pageData = JSON.parse(document.getElementById('page-data').textContent);
 const sessionsData = pageData.sessions;
+const urlState = new URLSearchParams(window.location.search);
+const isValidDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
 
-let currentDateFilter = 'today';
-let customStartDate = null;
-let customEndDate = null;
+let customStartDate = isValidDate(urlState.get('start_date')) ? urlState.get('start_date') : pageData.today;
+let customEndDate = isValidDate(urlState.get('end_date')) ? urlState.get('end_date') : pageData.today;
+if (customStartDate > customEndDate) customEndDate = customStartDate;
+let lastEditTrigger = null;
 
 // Vehicle types with PCU factors
 const vehicleTypes = [
@@ -28,47 +31,10 @@ const vehicleTypes = [
   { name: "Tricycle", pcu: 0.7 }
 ];
 
-function getDateRange(range) {
-  const today = new Date();
-  let startDate, endDate;
-  
-  switch(range) {
-    case 'today':
-      startDate = new Date(today);
-      endDate = new Date(today);
-      break;
-    case 'this_month':
-      startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-      endDate = new Date(today);
-      break;
-    default:
-      return null;
-  }
-  
-  const formatDate = (d) => {
-    let year = d.getFullYear();
-    let month = String(d.getMonth() + 1).padStart(2, '0');
-    let day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-  
-  return { start: formatDate(startDate), end: formatDate(endDate) };
-}
-
 function filterByDate(session) {
-  if (!currentDateFilter && !customStartDate) return true;
   const sessionDate = session.start_time ? session.start_time.split('T')[0] : null;
   if (!sessionDate) return false;
-  if (customStartDate && customEndDate) {
-    return sessionDate >= customStartDate && sessionDate <= customEndDate;
-  }
-  if (currentDateFilter) {
-    const range = getDateRange(currentDateFilter);
-    if (range) {
-      return sessionDate >= range.start && sessionDate <= range.end;
-    }
-  }
-  return true;
+  return sessionDate >= customStartDate && sessionDate <= customEndDate;
 }
 
 // FIXED: formatDateTime without timezone conversion
@@ -102,14 +68,13 @@ const VEHICLE_NAMES = [
   "Tricycle"
 ];
 
+function updateDeleteAllButton(hasVisibleRecords) {
+  const deleteAllBtn = document.getElementById('deleteAllBtn');
+  deleteAllBtn.disabled = !hasVisibleRecords;
+  deleteAllBtn.title = hasVisibleRecords ? 'Delete all records' : 'No records to delete';
+}
+
 function renderTable() {
-  document.querySelectorAll('.date-pill').forEach(btn => {
-    btn.classList.remove('date-pill-active');
-    if (btn.dataset.date === currentDateFilter && !customStartDate) {
-      btn.classList.add('date-pill-active');
-    }
-  });
-  
   const searchTerm = document.getElementById('searchInput').value.toLowerCase();
   let filtered = sessionsData.filter(s => {
     if (searchTerm && !s.session_code.toLowerCase().includes(searchTerm) && !s.road_name.toLowerCase().includes(searchTerm)) return false;
@@ -118,8 +83,10 @@ function renderTable() {
   });
   
   const tbody = document.getElementById('sessionsTableBody');
+  updateDeleteAllButton(filtered.length > 0);
+
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-message">No sessions found</td><tr';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-message">No sessions found</td></tr>';
     return;
   }
   
@@ -176,6 +143,7 @@ function attachActionEvents() {
 
 function handleEdit(e) {
   e.stopPropagation();
+  lastEditTrigger = e.currentTarget;
   const id = parseInt(e.currentTarget.dataset.id);
   const session = sessionsData.find(s => s.id === id);
   if (!session) return;
@@ -195,7 +163,8 @@ function handleEdit(e) {
     const end = new Date(session.end_time);
     document.getElementById('edit_end_time').value = end.toISOString().slice(0, 16);
   }
-  document.getElementById('edit_status').value = session.status;
+  // Items shown in Manual Records are completed sessions and must stay ended.
+  document.getElementById('edit_status').value = 'ended';
   
   // Load vehicle counts from session detail
   const details = session.detail;
@@ -213,16 +182,18 @@ function handleEdit(e) {
   updateEditSummary();
   
   document.getElementById('editModal').classList.add('active');
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => document.getElementById('edit_road_name').focus());
 }
 
 function renderVehicleEditTable(counts, pcuTotals) {
   const tbody = document.getElementById('vehicleEditTableBody');
   tbody.innerHTML = vehicleTypes.map((vt, idx) => `
     <tr>
-      <td style="text-align:left;">${vt.name}</td>
-      <td>${vt.pcu}</td>
-      <td><input type="number" class="edit-count" data-idx="${idx}" value="${counts[idx] || 0}" min="0" step="1" style="width:80px; text-align:center;"></td>
-      <td id="edit_pcu_${idx}" style="font-family:'DM Mono',monospace;">${(counts[idx] || 0) * vt.pcu}</td>
+      <td class="vehicle-name">${vt.name}</td>
+      <td class="pcu-factor" data-label="PCU factor">${vt.pcu}</td>
+      <td data-label="Observed count"><input type="number" class="edit-count" data-idx="${idx}" value="${counts[idx] || 0}" min="0" step="1" aria-label="${vt.name} count"></td>
+      <td class="pcu-total" data-label="PCU total" id="edit_pcu_${idx}">${(counts[idx] || 0) * vt.pcu}</td>
     </tr>
   `).join('');
   
@@ -261,7 +232,9 @@ function updateEditSummary() {
   
   document.getElementById('edit_total_pcu').innerText = totalPcu;
   document.getElementById('edit_vc_ratio').innerText = vc;
-  document.getElementById('edit_los').innerText = los;
+  const losElement = document.getElementById('edit_los');
+  losElement.innerText = los;
+  losElement.dataset.los = los;
 }
 
 document.getElementById('edit_lanes').addEventListener('input', updateEditSummary);
@@ -315,6 +288,8 @@ async function handleDelete(e) {
 }
 
 async function handleDeleteAll() {
+  if (document.getElementById('deleteAllBtn').disabled) return;
+
   showConfirmModal(
     'Delete All Records?',
     'Are you sure you want to delete ALL manual records? This action cannot be undone.',
@@ -430,31 +405,70 @@ function showSessionDetails(session) {
   modal.classList.add('active');
 }
 
-// Date filter handlers
-document.querySelectorAll('.date-pill').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const dateValue = btn.dataset.date;
-    if (dateValue) {
-      document.querySelectorAll('.date-pill').forEach(b => b.classList.remove('date-pill-active'));
-      btn.classList.add('date-pill-active');
-      currentDateFilter = dateValue;
-      customStartDate = null;
-      customEndDate = null;
-      renderTable();
-    }
-  });
-});
+const searchInput = document.getElementById('searchInput');
+const startDateFilter = document.getElementById('startDateFilter');
+const endDateFilter = document.getElementById('endDateFilter');
 
-document.getElementById('searchInput').addEventListener('input', renderTable);
+startDateFilter.value = customStartDate;
+endDateFilter.value = customEndDate;
+searchInput.value = urlState.get('q') || '';
+
+function syncFilterStateToUrl() {
+  const params = new URLSearchParams();
+  params.set('start_date', customStartDate);
+  params.set('end_date', customEndDate);
+  if (searchInput.value.trim()) params.set('q', searchInput.value.trim());
+  window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+}
+
+function applyDateRange() {
+  const startDate = startDateFilter.value;
+  const endDate = endDateFilter.value;
+  endDateFilter.setCustomValidity('');
+  if (!startDate || !endDate) return;
+  if (startDate > endDate) {
+    endDateFilter.setCustomValidity('End date must be on or after the start date.');
+    endDateFilter.reportValidity();
+    return;
+  }
+  customStartDate = startDate;
+  customEndDate = endDate;
+  syncFilterStateToUrl();
+  renderTable();
+}
+
+document.getElementById('applyDateFilterBtn').addEventListener('click', applyDateRange);
+document.getElementById('todayFilterBtn').addEventListener('click', () => {
+  customStartDate = pageData.today;
+  customEndDate = pageData.today;
+  startDateFilter.value = pageData.today;
+  endDateFilter.value = pageData.today;
+  endDateFilter.setCustomValidity('');
+  syncFilterStateToUrl();
+  renderTable();
+});
+searchInput.addEventListener('input', () => {
+  syncFilterStateToUrl();
+  renderTable();
+});
 document.getElementById('deleteAllBtn').addEventListener('click', handleDeleteAll);
 renderTable();
 
 // Edit modal
 const editModal = document.getElementById('editModal');
-const closeEditModal = () => editModal.classList.remove('active');
+const closeEditModal = () => {
+  editModal.classList.remove('active');
+  document.body.classList.remove('modal-open');
+  lastEditTrigger?.focus();
+};
 document.getElementById('closeEditModalBtn').addEventListener('click', closeEditModal);
 document.getElementById('cancelEditBtn').addEventListener('click', closeEditModal);
 editModal.addEventListener('click', e => { if (e.target === editModal) closeEditModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && editModal.classList.contains('active') && !document.querySelector('.confirm-modal.active')) {
+    closeEditModal();
+  }
+});
 
 document.getElementById('editSessionForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -492,7 +506,7 @@ document.getElementById('editSessionForm').addEventListener('submit', async (e) 
     has_median: hasMedian,
     start_time: document.getElementById('edit_start_time').value,
     end_time: document.getElementById('edit_end_time').value || null,
-    status: document.getElementById('edit_status').value,
+    status: 'ended',
     counts: counts,
     pcu_totals: pcuTotals,
     total_pcu: totalPcu,
@@ -551,42 +565,6 @@ const detailsModal = document.getElementById('detailsModal');
 const closeDetailsModal = () => detailsModal.classList.remove('active');
 document.getElementById('closeDetailsModalBtn').addEventListener('click', closeDetailsModal);
 detailsModal.addEventListener('click', (e) => { if (e.target === detailsModal) closeDetailsModal(); });
-
-// Custom Date Modal
-const customDateBtn = document.getElementById('customDateBtn');
-const customDateModal = document.getElementById('customDateModal');
-const closeDateModalBtn = document.getElementById('closeDateModalBtn');
-const applyDateModalBtn = document.getElementById('applyDateModalBtn');
-const modalStartDate = document.getElementById('modal_start_date');
-const modalEndDate = document.getElementById('modal_end_date');
-
-customDateBtn.addEventListener('click', () => {
-  modalStartDate.value = pageData.today;
-  modalEndDate.value = pageData.today;
-  customDateModal.classList.add('active');
-});
-
-function closeDateModal() {
-  customDateModal.classList.remove('active');
-}
-
-closeDateModalBtn.addEventListener('click', closeDateModal);
-customDateModal.addEventListener('click', (e) => {
-  if (e.target === customDateModal) closeDateModal();
-});
-
-applyDateModalBtn.addEventListener('click', () => {
-  const startDate = modalStartDate.value;
-  const endDate = modalEndDate.value;
-  if (startDate && endDate) {
-    document.querySelectorAll('.date-pill').forEach(b => b.classList.remove('date-pill-active'));
-    currentDateFilter = null;
-    customStartDate = startDate;
-    customEndDate = endDate;
-    renderTable();
-  }
-  closeDateModal();
-});
 
 // Function used by table rows rendered from the server-provided session data.
 window.rowClickHandler = rowClickHandler;

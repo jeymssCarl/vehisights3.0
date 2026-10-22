@@ -311,13 +311,7 @@ input[type="date"]:focus {
   position: relative;
   overflow: hidden;
   transition: box-shadow 0.2s, transform 0.15s, background 0.25s, border-color 0.25s;
-  opacity: 0;
-  transform: translateY(14px);
 }
-.stat-card.visible {
-  animation: slide-up 0.45s ease forwards;
-}
-@keyframes slide-up { to { opacity: 1; transform: translateY(0); } }
 .stat-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.07); transform: translateY(-2px); }
 .stat-card::after {
   content: '';
@@ -396,6 +390,8 @@ input[type="date"]:focus {
 .los-b { background: var(--blue-bg);  color: var(--blue); }
 .los-c { background: var(--amber-bg); color: var(--amber); }
 .los-d { background: var(--red-bg);   color: var(--red); }
+.los-e { background: var(--red-bg);   color: var(--red); }
+.los-f { background: var(--red-bg); color: var(--red); }
 .vc-wrap { display: flex; flex-direction: column; gap: 4px; }
 .vc-num  { font-family: 'DM Mono', monospace; font-size: 0.74rem; color: var(--text-muted); }
 .vc-track { height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden; min-width: 70px; }
@@ -423,37 +419,23 @@ input[type="date"]:focus {
 }
 [data-theme="dark"] .view-all { color: #f9a8a8; }
 .view-all:hover { opacity: 1; }
-.loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0,0,0,0.3);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  visibility: hidden;
-  opacity: 0;
-  transition: visibility 0.2s, opacity 0.2s;
+.dashboard-data-region {
+  min-height: 118px;
 }
-.loading-overlay.active {
-  visibility: visible;
-  opacity: 1;
+.dashboard-empty-state {
+  display: grid;
+  min-height: 118px;
+  padding: 48px 20px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-align: center;
 }
-.loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 3px solid var(--surface);
-  border-top-color: var(--maroon);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+.mono-cell {
+  font-family: 'DM Mono', monospace;
+  font-variant-numeric: tabular-nums;
 }
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.panel-footer-link { margin-top: 12px; }
 @media (max-width: 1100px) {
   .stats-row { grid-template-columns: repeat(2,1fr); }
   .mid-row, .bottom-row { grid-template-columns: 1fr; }
