@@ -75,14 +75,6 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the manual sessions created by this user.
-     */
-    public function manualSessions()
-    {
-        return $this->hasMany(ManualSession::class, 'created_by');
-    }
-
-    /**
      * Get the auto sessions created by this user.
      */
     public function autoSessions()

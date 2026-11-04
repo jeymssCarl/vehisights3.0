@@ -59,7 +59,7 @@ document.getElementById('scheduleForm').addEventListener('submit', async (e) => 
     direction:     direction,
     direction_from: directionFrom,
     direction_to: directionTo,
-    date:          document.getElementById('date').value,
+    start_date:    document.getElementById('date').value,
     start_time:    document.getElementById('start_time').value,
     end_time:      document.getElementById('end_time').value,
     has_median:    document.getElementById('has_median').value === '1',
@@ -85,8 +85,8 @@ document.getElementById('scheduleForm').addEventListener('submit', async (e) => 
     const result = await response.json();
 
     if (result.success) {
-      alert('✅ Auto session started successfully! The system will now count vehicles (Private Car/Taxi/Pick-up, Jeepney, Van, Bus, Light Truck, Heavy Truck, Motorcycle, Tricycle) using the selected camera.');
-      window.location.href = '/auto-records';
+      alert('✅ Automatic counting schedule created. It will appear in Auto Records after the camera finishes and submits the final counts.');
+      window.location.reload();
     } else {
       alert('❌ Error: ' + (result.message || 'Something went wrong. Please try again.'));
     }

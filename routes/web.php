@@ -83,11 +83,9 @@ Route::middleware(['auth'])->group(function () {
 
     // AUTO RECORDS (automatic counting from cameras)
     Route::get('/auto-records', [AutoRecordsController::class, 'index'])->name('auto-records');
+    Route::delete('/auto-sessions/delete-all', [AutoRecordsController::class, 'destroyAll'])->name('auto-sessions.delete-all');
     Route::put('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'update'])->name('auto-sessions.update');
     Route::delete('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'destroy'])->name('auto-sessions.destroy');
-
-    // DELETE ALL auto sessions (MUST come BEFORE the {autoSession} route)
-    Route::delete('/auto-sessions/delete-all', [AutoRecordsController::class, 'destroyAll'])->name('auto-sessions.delete-all');
 
     // SCHEDULING PANEL
     Route::get('/schedules', [ScheduleController::class, 'index'])->name('schedules');

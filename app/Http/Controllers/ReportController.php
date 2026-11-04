@@ -2,367 +2,269 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Session;
-use App\Models\SessionDetail;
 use App\Models\AutoSession;
-use App\Models\AutoSessionDetail;
 use App\Models\ManualCount;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Models\Schedule;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        // Get filters from request
-        $startDate = $request->get('start_date', today()->format('Y-m-d'));
-        $endDate = $request->get('end_date', today()->format('Y-m-d'));
-        $station = $request->get('station', 'all');
+        $stations = $this->stationOptions();
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $stations);
+        $report = $this->buildReportData($startDate, $endDate, $station);
 
+        return view('reports', array_merge($report, [
+            'stations' => $stations,
+        ]));
+    }
+
+    public function exportCsv(Request $request)
+    {
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions());
+        $report = $this->buildReportData($startDate, $endDate, $station);
+
+        $rows = [
+            ['VEHISIGHTS VEHICLE COUNT SURVEY FORM'],
+            ['Department of Transportation (DOTr)'],
+            ['Land Transportation Franchising and Regulatory Board (LTFRB)'],
+            [],
+            ['Station / Road', $report['stationLabel']],
+            ['Date Range', $report['dateRangeLabel']],
+            ['Generated', $report['generatedAt']],
+            ['Total Records', $report['totalRecords']],
+            [],
+            ['Hour', 'Station / Road', 'Private Car / Taxi / Pick-up', 'Jeepney', 'Van', 'Bus & Mini Bus', 'Light Truck', 'Heavy Truck', 'Motorcycle', 'Tricycle', 'Total PCU', 'V/C Ratio', 'LOS', 'Source'],
+        ];
+
+        foreach ($report['hourlyData'] as $row) {
+            $rows[] = [
+                $row['hour'],
+                $this->csvSafe($row['road_name']),
+                (int) $row['private'],
+                (int) $row['jeepney'],
+                (int) $row['van'],
+                (int) $row['bus'],
+                (int) $row['truck2'],
+                (int) $row['truck3'],
+                (int) $row['motorcycle'],
+                (int) $row['tricycle'],
+                round((float) $row['total_pcu'], 2),
+                round((float) $row['vc_ratio'], 2),
+                $row['los'],
+                ucfirst($row['source']),
+            ];
+        }
+
+        $rows[] = [];
+        $rows[] = ['SUMMARY'];
+        $rows[] = ['Total Records', $report['totalRecords']];
+        $rows[] = ['Total PCU', round((float) $report['totalPcu'], 2)];
+        $rows[] = ['Average V/C Ratio', round((float) $report['avgVc'], 2)];
+        $rows[] = ['Peak Hour PCU', round((float) $report['peakHourPcu'], 2)];
+        $rows[] = ['Peak LOS', $report['maxLos']];
+
+        $handle = fopen('php://temp', 'w+');
+        foreach ($rows as $row) {
+            fputcsv($handle, $row);
+        }
+        rewind($handle);
+        $csv = "\xEF\xBB\xBF".stream_get_contents($handle);
+        fclose($handle);
+
+        $filename = "vehisights_vehicle_count_{$startDate}_to_{$endDate}.csv";
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
+    }
+
+    public function generatePdf(Request $request)
+    {
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions());
+        $report = $this->buildReportData($startDate, $endDate, $station);
+        $filename = "vehisights_vehicle_count_{$startDate}_to_{$endDate}.pdf";
+
+        return Pdf::loadView('reports.pdf', $report)
+            ->setPaper('a4', 'landscape')
+            ->download($filename);
+    }
+
+    private function resolveFilters(Request $request, $stationOptions = null): array
+    {
+        $validated = $request->validate([
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
+            'station' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $station = $validated['station'] ?? 'all';
+
+        // A bookmarked filter may point to a road that has since been deleted.
+        // Fall back to the complete current dataset instead of retaining a stale option.
+        if ($station !== 'all' && $stationOptions !== null && ! $stationOptions->contains($station)) {
+            $station = 'all';
+        }
+
+        return [
+            $validated['start_date'] ?? today()->format('Y-m-d'),
+            $validated['end_date'] ?? today()->format('Y-m-d'),
+            $station,
+        ];
+    }
+
+    private function buildReportData(string $startDate, string $endDate, string $station): array
+    {
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
-        // Get data from MANUAL COUNTS table (directly)
-        $manualCounts = ManualCount::whereBetween('count_date', [$start, $end])
-            ->when($station !== 'all', function($query) use ($station) {
-                return $query->where('road_name', 'like', '%' . $station . '%');
-            })
+        $manualCounts = ManualCount::query()
+            ->whereBetween('count_date', [$start, $end])
+            ->when($station !== 'all', fn ($query) => $query->where('road_name', $station))
             ->orderBy('hour_start')
             ->get();
 
-        // Get data from AUTO SESSIONS
-        try {
-            $autoSessions = AutoSession::with('detail')
-                ->whereBetween('start_time', [$start, $end])
-                ->when($station !== 'all', function($query) use ($station) {
-                    return $query->where('camera_name', 'like', '%' . $station . '%');
-                })
-                ->orderBy('start_time')
-                ->get();
-        } catch (\Exception $e) {
-            $autoSessions = collect();
-        }
+        $autoSessions = AutoSession::query()
+            ->with('detail')
+            ->where('status', 'ended')
+            ->whereHas('detail')
+            ->whereBetween('start_time', [$start, $end])
+            ->when($station !== 'all', function ($query) use ($station) {
+                $query->where(function ($stationQuery) use ($station) {
+                    $stationQuery->where('road_name', $station)
+                        ->orWhere('location', $station)
+                        ->orWhere(function ($fallbackQuery) use ($station) {
+                            $fallbackQuery->whereNull('location')->where('camera_name', $station);
+                        });
+                });
+            })
+            ->orderBy('start_time')
+            ->get();
 
-        // Combine data from all sources
         $hourlyData = $this->combineAllData($manualCounts, $autoSessions);
-
-        // Calculate summary stats
         $totalPcu = $hourlyData->sum('total_pcu');
         $avgVc = $hourlyData->avg('vc_ratio') ?: 0;
         $maxLos = $this->getMaxLos($hourlyData);
-        $peakHourPcu = $hourlyData->max('total_pcu');
-        $totalRecords = $hourlyData->count();
+        $peakHourPcu = $hourlyData->max('total_pcu') ?: 0;
 
-        // Get vehicle type totals
-        $vehicleTotals = [
-            'private' => $hourlyData->sum('private'),
-            'jeepney' => $hourlyData->sum('jeepney'),
-            'van' => $hourlyData->sum('van'),
-            'bus' => $hourlyData->sum('bus'),
-            'truck2' => $hourlyData->sum('truck2'),
-            'truck3' => $hourlyData->sum('truck3'),
-            'motorcycle' => $hourlyData->sum('motorcycle'),
-            'tricycle' => $hourlyData->sum('tricycle'),
+        return [
+            'hourlyData' => $hourlyData,
+            'totalPcu' => $totalPcu,
+            'avgVc' => $avgVc,
+            'maxLos' => $maxLos,
+            'peakHourPcu' => $peakHourPcu,
+            'totalRecords' => $hourlyData->count(),
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'station' => $station,
+            'stationLabel' => $station === 'all' ? 'All Stations / Roads' : $station,
+            'dateRangeLabel' => Carbon::parse($startDate)->format('F j, Y').($startDate !== $endDate ? ' - '.Carbon::parse($endDate)->format('F j, Y') : ''),
+            'generatedAt' => now()->format('F j, Y g:i A'),
+            'chartLabels' => $hourlyData->pluck('hour')->toArray(),
+            'chartData' => $hourlyData->pluck('total_pcu')->map(fn ($value) => (float) $value)->toArray(),
         ];
+    }
 
-        // Get stations list for filter dropdown
-        $stations = ManualCount::select('road_name')->distinct()->pluck('road_name')
+    private function stationOptions()
+    {
+        $manualRoads = ManualCount::query()
+            ->whereNotNull('road_name')
+            ->where('road_name', '<>', '')
+            ->pluck('road_name');
+
+        $scheduledRoads = Schedule::query()
+            ->whereNotNull('road_name')
+            ->where('road_name', '<>', '')
+            ->pluck('road_name');
+
+        return $manualRoads
+            ->merge($scheduledRoads)
+            ->map(fn ($value) => trim((string) $value))
             ->filter()
+            ->unique(fn ($value) => mb_strtolower($value))
+            ->sort(fn ($a, $b) => strcasecmp($a, $b))
             ->values();
-
-        // Chart data
-        $chartLabels = $hourlyData->pluck('hour')->toArray();
-        $chartData = $hourlyData->pluck('total_pcu')->toArray();
-
-        return view('reports', compact(
-            'hourlyData', 'totalPcu', 'avgVc', 'maxLos', 'peakHourPcu',
-            'startDate', 'endDate', 'station', 'stations',
-            'chartLabels', 'chartData', 'vehicleTotals', 'totalRecords'
-        ));
     }
 
     private function combineAllData($manualCounts, $autoSessions)
     {
         $data = collect();
 
-        // Process manual counts
         foreach ($manualCounts as $count) {
-            $hour = Carbon::parse($count->hour_start)->format('H:i');
-            $hourEnd = Carbon::parse($count->hour_end)->format('H:i');
-            $counts = is_array($count->counts) ? $count->counts : json_decode($count->counts, true);
-            
-            $data->push([
-                'hour' => $hour . '–' . $hourEnd,
-                'datetime' => $count->hour_start,
-                'road_name' => $count->road_name,
-                'private' => $counts[0] ?? 0,
-                'jeepney' => $counts[1] ?? 0,
-                'van' => $counts[2] ?? 0,
-                'bus' => $counts[3] ?? 0,
-                'truck2' => $counts[4] ?? 0,
-                'truck3' => $counts[5] ?? 0,
-                'motorcycle' => $counts[6] ?? 0,
-                'tricycle' => $counts[7] ?? 0,
-                'total_pcu' => $count->total_pcu,
-                'vc_ratio' => $count->vc_ratio,
-                'los' => $count->los,
-                'source' => 'manual'
-            ]);
+            $counts = is_array($count->counts) ? $count->counts : (json_decode($count->counts, true) ?: []);
+
+            $data->push($this->reportRow(
+                Carbon::parse($count->hour_start),
+                Carbon::parse($count->hour_end),
+                $count->road_name,
+                $counts,
+                $count->total_pcu,
+                $count->vc_ratio,
+                $count->los,
+                'manual'
+            ));
         }
 
-        // Process auto sessions
         foreach ($autoSessions as $session) {
-            if ($session->detail) {
-                $hour = Carbon::parse($session->start_time)->format('H:i');
-                $hourEnd = Carbon::parse($session->end_time)->format('H:i');
-                $counts = is_array($session->detail->counts) ? $session->detail->counts : json_decode($session->detail->counts, true);
-                
-                $data->push([
-                    'hour' => $hour . '–' . $hourEnd,
-                    'datetime' => $session->start_time,
-                    'road_name' => $session->camera_name,
-                    'private' => $counts[0] ?? 0,
-                    'jeepney' => $counts[1] ?? 0,
-                    'van' => $counts[2] ?? 0,
-                    'bus' => $counts[3] ?? 0,
-                    'truck2' => $counts[4] ?? 0,
-                    'truck3' => $counts[5] ?? 0,
-                    'motorcycle' => $counts[6] ?? 0,
-                    'tricycle' => $counts[7] ?? 0,
-                    'total_pcu' => $session->detail->total_pcu,
-                    'vc_ratio' => $session->detail->vc_ratio,
-                    'los' => $session->detail->los,
-                    'source' => 'auto'
-                ]);
+            if (! $session->detail) {
+                continue;
             }
+
+            $counts = is_array($session->detail->counts) ? $session->detail->counts : (json_decode($session->detail->counts, true) ?: []);
+            $start = Carbon::parse($session->start_time);
+            $end = $session->end_time ? Carbon::parse($session->end_time) : $start->copy()->addHour();
+
+            $data->push($this->reportRow(
+                $start,
+                $end,
+                $session->road_name ?: ($session->location ?: $session->camera_name),
+                $counts,
+                $session->detail->total_pcu,
+                $session->detail->vc_ratio,
+                $session->detail->los,
+                'auto'
+            ));
         }
 
         return $data->sortBy('datetime')->values();
     }
 
-    private function getMaxLos($hourlyData)
+    private function reportRow(Carbon $start, Carbon $end, string $station, array $counts, $totalPcu, $vcRatio, $los, string $source): array
+    {
+        return [
+            'hour' => $start->format('H:i').'-'.$end->format('H:i'),
+            'datetime' => $start->toDateTimeString(),
+            'road_name' => $station,
+            'private' => $counts[0] ?? 0,
+            'jeepney' => $counts[1] ?? 0,
+            'van' => $counts[2] ?? 0,
+            'bus' => $counts[3] ?? 0,
+            'truck2' => $counts[4] ?? 0,
+            'truck3' => $counts[5] ?? 0,
+            'motorcycle' => $counts[6] ?? 0,
+            'tricycle' => $counts[7] ?? 0,
+            'total_pcu' => $totalPcu ?? 0,
+            'vc_ratio' => $vcRatio ?? 0,
+            'los' => $los ?: 'N/A',
+            'source' => $source,
+        ];
+    }
+
+    private function getMaxLos($hourlyData): string
     {
         $losOrder = ['A' => 1, 'B' => 2, 'C' => 3, 'D' => 4, 'E' => 5, 'F' => 6];
-        $max = $hourlyData->sortByDesc(function($item) use ($losOrder) {
-            return $losOrder[$item['los']] ?? 0;
-        })->first();
-        
+        $max = $hourlyData->sortByDesc(fn ($item) => $losOrder[$item['los']] ?? 0)->first();
+
         return $max['los'] ?? 'N/A';
     }
 
-    public function exportCsv(Request $request)
+    private function csvSafe(string $value): string
     {
-        $startDate = $request->get('start_date', today()->format('Y-m-d'));
-        $endDate = $request->get('end_date', today()->format('Y-m-d'));
-        $station = $request->get('station', 'all');
-
-        $start = Carbon::parse($startDate)->startOfDay();
-        $end = Carbon::parse($endDate)->endOfDay();
-
-        $manualCounts = ManualCount::whereBetween('count_date', [$start, $end])
-            ->when($station !== 'all', function($query) use ($station) {
-                return $query->where('road_name', 'like', '%' . $station . '%');
-            })
-            ->orderBy('hour_start')
-            ->get();
-
-        try {
-            $autoSessions = AutoSession::with('detail')
-                ->whereBetween('start_time', [$start, $end])
-                ->when($station !== 'all', function($query) use ($station) {
-                    return $query->where('camera_name', 'like', '%' . $station . '%');
-                })
-                ->get();
-        } catch (\Exception $e) {
-            $autoSessions = collect();
-        }
-
-        $hourlyData = $this->combineAllData($manualCounts, $autoSessions);
-
-        // Create CSV
-        $csvData = [];
-        $csvData[] = ['VEHICLE COUNT SURVEY FORM - LTFRB/DILG COMPLIANT'];
-        $csvData[] = [''];
-        $csvData[] = ['Station:', $station === 'all' ? 'All Stations' : $station];
-        $csvData[] = ['Date Range:', Carbon::parse($startDate)->format('F d, Y') . ' - ' . Carbon::parse($endDate)->format('F d, Y')];
-        $csvData[] = ['Generated:', Carbon::now()->format('F d, Y H:i:s')];
-        $csvData[] = [''];
-        $csvData[] = ['Hour', 'Station', 'Private', 'Jeepney', 'Van', 'Bus', '2-Axle Truck', '3+ Axle Truck', 'Motorcycle', 'Tricycle', 'Total PCU', 'V/C Ratio', 'LOS', 'Source'];
-
-        foreach ($hourlyData as $row) {
-            $csvData[] = [
-                $row['hour'],
-                $row['road_name'],
-                $row['private'],
-                $row['jeepney'],
-                $row['van'],
-                $row['bus'],
-                $row['truck2'],
-                $row['truck3'],
-                $row['motorcycle'],
-                $row['tricycle'],
-                number_format($row['total_pcu'], 2),
-                number_format($row['vc_ratio'], 2),
-                $row['los'],
-                $row['source']
-            ];
-        }
-
-        $csvData[] = [''];
-        $csvData[] = ['SUMMARY'];
-        $csvData[] = ['Total Records:', $hourlyData->count()];
-        $csvData[] = ['Total PCU:', number_format($hourlyData->sum('total_pcu'), 2)];
-        $csvData[] = ['Average V/C Ratio:', number_format($hourlyData->avg('vc_ratio'), 2)];
-        $csvData[] = ['Peak Hour PCU:', number_format($hourlyData->max('total_pcu'), 2)];
-
-        $filename = 'traffic_report_' . $startDate . '_to_' . $endDate . '.csv';
-        
-        $handle = fopen('php://temp', 'w+');
-        foreach ($csvData as $row) {
-            fputcsv($handle, $row);
-        }
-        rewind($handle);
-        $csv = stream_get_contents($handle);
-        fclose($handle);
-
-        return response($csv, 200)
-            ->header('Content-Type', 'text/csv')
-            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
-    }
-
-    public function generatePdf(Request $request)
-    {
-        $startDate = $request->get('start_date', today()->format('Y-m-d'));
-        $endDate = $request->get('end_date', today()->format('Y-m-d'));
-        $station = $request->get('station', 'all');
-
-        $start = Carbon::parse($startDate)->startOfDay();
-        $end = Carbon::parse($endDate)->endOfDay();
-
-        $manualCounts = ManualCount::whereBetween('count_date', [$start, $end])
-            ->when($station !== 'all', function($query) use ($station) {
-                return $query->where('road_name', 'like', '%' . $station . '%');
-            })
-            ->get();
-
-        try {
-            $autoSessions = AutoSession::with('detail')
-                ->whereBetween('start_time', [$start, $end])
-                ->when($station !== 'all', function($query) use ($station) {
-                    return $query->where('camera_name', 'like', '%' . $station . '%');
-                })
-                ->get();
-        } catch (\Exception $e) {
-            $autoSessions = collect();
-        }
-
-        $hourlyData = $this->combineAllData($manualCounts, $autoSessions);
-
-        $html = $this->generatePdfHtml($hourlyData, $startDate, $endDate, $station);
-        
-        return response($html)
-            ->header('Content-Type', 'text/html')
-            ->header('Content-Disposition', 'attachment; filename="traffic_report_' . $startDate . '.html"');
-    }
-
-    private function generatePdfHtml($hourlyData, $startDate, $endDate, $station)
-    {
-        $html = '
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>LTFRB Vehicle Count Survey Form</title>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 20px; }
-                .header { text-align: center; margin-bottom: 30px; }
-                .header h1 { font-size: 14px; margin: 5px 0; }
-                .header h2 { font-size: 12px; margin: 5px 0; }
-                .info-table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
-                .info-table td { padding: 5px; border: none; }
-                .data-table { width: 100%; border-collapse: collapse; font-size: 9px; }
-                .data-table th, .data-table td { border: 1px solid #000; padding: 4px; text-align: center; }
-                .data-table th { background-color: #f0f0f0; font-weight: bold; }
-                .summary { margin-top: 20px; font-size: 10px; }
-                .footer { margin-top: 30px; text-align: center; font-size: 9px; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>Republic of the Philippines</h1>
-                <h2>Department of Transportation (DOTr)</h2>
-                <h2>Land Transportation Franchising and Regulatory Board (LTFRB)</h2>
-                <h3>VEHICLE COUNT SURVEY FORM</h3>
-            </div>
-            
-            <table class="info-table">
-                <tr>
-                    <td width="50%"><strong>Station:</strong> ' . ($station === 'all' ? 'All Stations' : $station) . '</td>
-                    <td width="50%"><strong>Date:</strong> ' . Carbon::parse($startDate)->format('F d, Y') . ($startDate != $endDate ? ' - ' . Carbon::parse($endDate)->format('F d, Y') : '') . '</td>
-                </tr>
-                <tr>
-                    <td><strong>Surveyor:</strong> VehiSights System<br>' . Carbon::now()->format('F d, Y H:i:s') . '</td>
-                    <td><strong>Total Records:</strong> ' . $hourlyData->count() . '</td>
-                </tr>
-            </table>
-            
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Hour</th>
-                        <th>Station</th>
-                        <th>Private</th>
-                        <th>Jeepney</th>
-                        <th>Van</th>
-                        <th>Bus</th>
-                        <th>2-Axle Truck</th>
-                        <th>3+ Axle Truck</th>
-                        <th>Motorcycle</th>
-                        <th>Tricycle</th>
-                        <th>Total PCU</th>
-                        <th>V/C</th>
-                        <th>LOS</th>
-                    </tr>
-                </thead>
-                <tbody>';
-        
-        foreach ($hourlyData as $row) {
-            $html .= '
-                    <tr>
-                        <td>' . $row['hour'] . '</td>
-                        <td>' . $row['road_name'] . '</td>
-                        <td>' . number_format($row['private']) . '</td>
-                        <td>' . number_format($row['jeepney']) . '</td>
-                        <td>' . number_format($row['van']) . '</td>
-                        <td>' . number_format($row['bus']) . '</td>
-                        <td>' . number_format($row['truck2']) . '</td>
-                        <td>' . number_format($row['truck3']) . '</td>
-                        <td>' . number_format($row['motorcycle']) . '</td>
-                        <td>' . number_format($row['tricycle']) . '</td>
-                        <td>' . number_format($row['total_pcu'], 2) . '</td>
-                        <td>' . number_format($row['vc_ratio'], 2) . '</td>
-                        <td>' . $row['los'] . '</td>
-                    </tr>';
-        }
-        
-        $html .= '
-                </tbody>
-            </table>
-            
-            <div class="summary">
-                <p><strong>Total PCU:</strong> ' . number_format($hourlyData->sum('total_pcu'), 2) . '</p>
-                <p><strong>Average V/C Ratio:</strong> ' . number_format($hourlyData->avg('vc_ratio'), 2) . '</p>
-                <p><strong>Peak Hour PCU:</strong> ' . number_format($hourlyData->max('total_pcu'), 2) . '</p>
-                <p><strong>Peak LOS:</strong> ' . $this->getMaxLos($hourlyData) . '</p>
-            </div>
-            
-            <div class="footer">
-                <p>Prepared by: VehiSights Traffic Monitoring System</p>
-            </div>
-        </body>
-        </html>';
-        
-        return $html;
+        return preg_match('/^[=+\-@]/', $value) ? "'".$value : $value;
     }
 }

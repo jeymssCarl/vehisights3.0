@@ -275,6 +275,8 @@ body {
   font-size: 0.8rem;
 }
 .btn-primary:hover { background: #5a1414; }
+.btn-primary:disabled,
+.btn-secondary:disabled { cursor: wait; opacity: 0.62; }
 .stats-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -440,12 +442,13 @@ body {
 .modal {
   background: var(--surface);
   border-radius: var(--radius);
-  width: 90%;
-  max-width: 1200px;
-  max-height: 85vh;
+  width: calc(100% - 32px);
+  max-width: 1760px;
+  max-height: 95vh;
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px;
   border: 1px solid var(--border);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.22);
 }
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -457,20 +460,11 @@ body {
   cursor: pointer; color: var(--text-muted);
 }
 .survey-form {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.75rem;
-}
-.survey-form h4 { margin: 16px 0 8px; font-size: 0.85rem; }
-.survey-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 12px 0;
-}
-.survey-table th, .survey-table td {
-  border: 1px solid var(--border);
-  padding: 8px;
-  text-align: left;
-  font-size: 0.7rem;
+  overflow-x: auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface2);
+  scrollbar-gutter: stable;
 }
 @media (max-width: 1000px) {
   .sidebar { width: 60px; }

@@ -95,166 +95,102 @@ if (hasChartData) {
   document.getElementById('chartEmptyState').style.display = 'flex';
 }
 
-// Apply Filters (reload page with new parameters)
+function selectedFilters() {
+  const startDate = document.getElementById('start_date').value;
+  const endDate = document.getElementById('end_date').value;
+  const station = document.getElementById('station').value;
+
+  return { startDate, endDate, station };
+}
+
+function filtersAreValid() {
+  const { startDate, endDate } = selectedFilters();
+  const endInput = document.getElementById('end_date');
+  endInput.setCustomValidity('');
+  if (!startDate || !endDate) return false;
+  if (startDate > endDate) {
+    endInput.setCustomValidity('End date must be on or after the start date.');
+    endInput.reportValidity();
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('applyFilters').addEventListener('click', () => {
-  const startDate = document.getElementById('start_date').value;
-  const endDate = document.getElementById('end_date').value;
-  const station = document.getElementById('station').value;
-  
-  let url = '/reports?';
-  if (startDate) url += `start_date=${startDate}&`;
-  if (endDate) url += `end_date=${endDate}&`;
-  if (station && station !== 'all') url += `station=${encodeURIComponent(station)}`;
-  
-  window.location.href = url;
+  if (!filtersAreValid()) return;
+  const { startDate, endDate, station } = selectedFilters();
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  if (station !== 'all') params.set('station', station);
+  window.location.href = `/reports?${params.toString()}`;
 });
 
-// Export CSV (use the server endpoint)
-document.getElementById('exportCsvBtn').addEventListener('click', async () => {
-  const startDate = document.getElementById('start_date').value;
-  const endDate = document.getElementById('end_date').value;
-  const station = document.getElementById('station').value;
-  
+async function downloadReport(endpoint, extension, trigger) {
+  if (!filtersAreValid()) return;
+
+  const { startDate, endDate, station } = selectedFilters();
   const formData = new FormData();
   formData.append('start_date', startDate);
   formData.append('end_date', endDate);
   formData.append('station', station);
-  
-  const response = await fetch('/reports/export-csv', {
-    method: 'POST',
-    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
-    body: formData
-  });
-  
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `traffic_report_${startDate}_to_${endDate}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
+
+  const originalText = trigger.textContent;
+  trigger.disabled = true;
+  trigger.textContent = 'Preparing...';
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        'Accept': extension === 'pdf' ? 'application/pdf' : 'text/csv'
+      },
+      body: formData
+    });
+    if (!response.ok) throw new Error('The report could not be generated.');
+
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = objectUrl;
+    downloadLink.download = `vehisights_vehicle_count_${startDate}_to_${endDate}.${extension}`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    window.URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error(error);
+    window.alert('Unable to export the report. Please try again.');
+  } finally {
+    trigger.disabled = false;
+    trigger.textContent = originalText;
+  }
+}
+
+document.getElementById('exportCsvBtn').addEventListener('click', event => {
+  downloadReport('/reports/export-csv', 'csv', event.currentTarget);
 });
 
-// Export PDF (download HTML version)
-document.getElementById('exportPdfBtn').addEventListener('click', async () => {
-  const startDate = document.getElementById('start_date').value;
-  const endDate = document.getElementById('end_date').value;
-  const station = document.getElementById('station').value;
-  
-  const formData = new FormData();
-  formData.append('start_date', startDate);
-  formData.append('end_date', endDate);
-  formData.append('station', station);
-  
-  const response = await fetch('/reports/generate-pdf', {
-    method: 'POST',
-    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
-    body: formData
-  });
-  
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `traffic_report_${startDate}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
+document.getElementById('exportPdfBtn').addEventListener('click', event => {
+  downloadReport('/reports/generate-pdf', 'pdf', event.currentTarget);
 });
 
-// Generate Survey Form Modal (uses current table data)
 document.getElementById('generateFormBtn').addEventListener('click', () => {
-  const tableRows = document.querySelectorAll('#hourlyTable tbody tr');
-  const stationSelect = document.getElementById('station');
-  const station = stationSelect.options[stationSelect.selectedIndex]?.text || 'All Stations';
-  const startDate = document.getElementById('start_date').value;
-  const endDate = document.getElementById('end_date').value;
-  
-  let tableHtml = '<table class="survey-table"><thead><tr><th>Hour</th><th>Station</th><th>Private Car/Taxi/Pick-up</th><th>Jeepney</th><th>Van</th><th>Bus</th><th>Light Truck</th><th>Heavy Truck</th><th>Motorcycle</th><th>Tricycle</th><th>Total PCU</th><th>V/C</th><th>LOS</th><th>Source</th></tr></thead><tbody>';
-  
-  tableRows.forEach(row => {
-    if (row.classList && row.classList.contains('empty-state')) return;
-    const cells = row.querySelectorAll('td');
-    if (cells.length >= 14) {
-      tableHtml += `<tr>
-        <td>${cells[0]?.innerText || ''}</td>
-        <td>${cells[1]?.innerText || ''}</td>
-        <td>${cells[2]?.innerText || ''}</td>
-        <td>${cells[3]?.innerText || ''}</td>
-        <td>${cells[4]?.innerText || ''}</td>
-        <td>${cells[5]?.innerText || ''}</td>
-        <td>${cells[6]?.innerText || ''}</td>
-        <td>${cells[7]?.innerText || ''}</td>
-        <td>${cells[8]?.innerText || ''}</td>
-        <td>${cells[9]?.innerText || ''}</td>
-        <td>${cells[10]?.innerText || ''}</td>
-        <td>${cells[11]?.innerText || ''}</td>
-        <td>${cells[12]?.innerText || ''}</td>
-        <td>${cells[13]?.innerText || ''}</td>
-      </tr>`;
-    }
-  });
-  
-  tableHtml += '</tbody></tr>';
-  
-  const totalPcu = document.getElementById('totalPcu').innerText;
-  const avgVc = document.getElementById('avgVc').innerText;
-  const maxLos = document.getElementById('maxLos').innerText;
-  const totalRecords = tableRows.length;
-  
-  const surveyHtml = `
-    <div style="text-align:center; margin-bottom:20px;">
-      <h4>Republic of the Philippines</h4>
-      <h4>Department of Transportation (DOTr)</h4>
-      <h4>Land Transportation Franchising and Regulatory Board (LTFRB)</h4>
-      <h3 style="margin-top:15px;">VEHICLE COUNT SURVEY FORM</h3>
-    </div>
-    <div style="margin-bottom:20px;">
-      <p><strong>Station:</strong> ${station}</p>
-      <p><strong>Date Range:</strong> ${startDate} to ${endDate}</p>
-      <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
-    </div>
-    ${tableHtml}
-    <div style="margin-top:20px;">
-      <p><strong>Total PCU:</strong> ${totalPcu}</p>
-      <p><strong>Average V/C Ratio:</strong> ${avgVc}</p>
-      <p><strong>Peak LOS:</strong> ${maxLos}</p>
-      <p><strong>Total Records:</strong> ${totalRecords}</p>
-    </div>
-    <div style="margin-top:30px; text-align:center; font-size:0.7rem;">
-      <p>Prepared by: VehiSights Traffic Monitoring System</p>
-      <p>${new Date().toLocaleString()}</p>
-    </div>
-  `;
-  
-  document.getElementById('surveyContent').innerHTML = surveyHtml;
   document.getElementById('surveyModal').classList.add('active');
 });
 
-// Print Survey Form
 document.getElementById('printSurveyBtn').addEventListener('click', () => {
-  const printContent = document.getElementById('surveyContent').innerHTML;
   const printWindow = window.open('', '_blank');
-  printWindow.document.write(`
-    <html>
-      <head>
-        <title>LTFRB Vehicle Count Survey Form</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          .survey-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-          .survey-table th, .survey-table td { border: 1px solid #000; padding: 6px; text-align: center; font-size: 9px; }
-          .survey-table th { background: #f0f0f0; }
-          @media print { body { margin: 0; } }
-        </style>
-      </head>
-      <body>${printContent}</body>
-    </html>
-  `);
+  if (!printWindow) {
+    window.alert('Please allow pop-ups to print the survey form.');
+    return;
+  }
+
+  const printStyles = document.getElementById('reportDocumentStyles').textContent;
+  const printContent = document.getElementById('surveyContent').innerHTML;
+  printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>VehiSights Vehicle Count Survey</title><style>${printStyles}</style></head><body>${printContent}</body></html>`);
   printWindow.document.close();
-  printWindow.print();
+  printWindow.focus();
+  window.setTimeout(() => printWindow.print(), 250);
 });
 
 // Close modal

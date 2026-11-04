@@ -41,4 +41,9 @@ class Session extends Model
     {
         return $this->hasOne(SessionDetail::class);
     }
+
+    public function manualCount()
+    {
+        return $this->hasOne(ManualCount::class);
+    }
 }

@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 @vite(['resources/css/pages/reports.css', 'resources/js/ui-enhancements.js'])
+@include('reports.partials.document-styles')
 </head>
 <body>
 <div class="layout">
@@ -65,11 +66,15 @@
         </div>
         <div class="filter-group">
           <label>Station / Road</label>
-          <select id="station">
-            <option value="all" {{ $station == 'all' ? 'selected' : '' }}>All Stations</option>
-            @foreach($stations as $stat)
-              <option value="{{ $stat }}" {{ $station == $stat ? 'selected' : '' }}>{{ $stat }}</option>
-            @endforeach
+          <select id="station" {{ $stations->isEmpty() ? 'disabled' : '' }}>
+            @if($stations->isEmpty())
+              <option value="" selected>No stations / roads available</option>
+            @else
+              <option value="all" {{ $station == 'all' ? 'selected' : '' }}>All Stations / Roads</option>
+              @foreach($stations as $stat)
+                <option value="{{ $stat }}" {{ $station == $stat ? 'selected' : '' }}>{{ $stat }}</option>
+              @endforeach
+            @endif
           </select>
         </div>
         <button class="btn-primary" id="applyFilters">Apply Filters</button>
@@ -173,9 +178,11 @@
   <div class="modal">
     <div class="modal-header">
       <h3>LTFRB/DILG Vehicle Count Survey Form</h3>
-      <button class="close-modal" id="closeModalBtn">&times;</button>
+      <button class="close-modal" id="closeModalBtn" type="button" aria-label="Close survey preview">&times;</button>
     </div>
-    <div id="surveyContent" class="survey-form"></div>
+    <div id="surveyContent" class="survey-form">
+      @include('reports.partials.survey-content')
+    </div>
     <div class="export-buttons" style="margin-top:20px;">
       <button class="btn-primary" id="printSurveyBtn">Print / Save as PDF</button>
     </div>

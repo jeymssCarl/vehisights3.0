@@ -84,11 +84,11 @@
         <div class="form-row">
           <div class="form-group"><label>Station / Road Name</label><input type="text" id="roadName" placeholder="e.g., Timog Avenue Intersection"></div>
           <div class="form-group"><label>Barangay</label><input type="text" id="barangay" placeholder="Barangay"></div>
-          <div class="form-group"><label>City/Municipality</label><input type="text" id="city" value="Tagum City"></div>
+          <div class="form-group"><label>City/Municipality</label><input type="text" id="city" value="Sto. Tomas"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><label>Direction From</label><input type="text" id="dirFrom" placeholder="From: Bincungan"></div>
-          <div class="form-group"><label>Direction To</label><input type="text" id="dirTo" placeholder="To: Tagum"></div>
+          <div class="form-group"><label>Direction To</label><input type="text" id="dirTo" placeholder="To: Sto. Tomas"></div>
           <div class="form-group"><label>Date</label><input type="date" id="date" value="{{ date('Y-m-d') }}"></div>
         </div>
         <div class="form-row">

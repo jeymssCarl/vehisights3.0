@@ -2,107 +2,119 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Schedule;
 use App\Models\Camera;
+use App\Models\Schedule;
+use App\Models\ScheduleLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class ScheduleController extends Controller
 {
     public function index()
     {
-        $schedules = Schedule::with(['camera', 'user'])->orderBy('created_at', 'desc')->get();
-        $cameras = Camera::where('status', 'online')->get();
+        $schedules = Schedule::with(['camera', 'user'])->orderByDesc('created_at')->get();
+        $cameras = Camera::where('status', 'online')->orderBy('name')->get();
+
         return view('schedules', compact('schedules', 'cameras'));
     }
 
     public function store(Request $request)
-{
-    $validated = $request->validate([
-        'schedule_name' => 'required|string|max:255',
-        'camera_id' => 'required|exists:cameras,id',
-        'start_date' => 'required|date',
-        'end_date' => 'nullable|date|after_or_equal:start_date',
-        'start_time' => 'required',
-        'end_time' => 'required',
-        'recurrence' => 'required|in:once,daily,weekly,monthly',
-        'recurrence_days' => 'nullable|array',
-        'is_active' => 'boolean',
-        // New fields
-        'road_name' => 'nullable|string',
-        'barangay' => 'nullable|string',
-        'city' => 'nullable|string',
-        'direction' => 'nullable|string',
-        'lanes' => 'nullable|integer',
-        'has_median' => 'nullable|boolean',
-    ]);
-
-    $validated['created_by'] = Auth::id();
-    $validated['is_active'] = $request->has('is_active') ? true : false;
-    
-    // Store additional fields in schedule_name or as JSON
-    if ($request->has('road_name')) {
-        $validated['schedule_name'] = $request->schedule_name . ' - ' . $request->road_name;
-    }
-
-    $schedule = Schedule::create($validated);
-
-    // TODO: Send request to executable to start counting
-    // This will be implemented when the executable API is ready
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Auto session started successfully',
-        'schedule' => $schedule
-    ]);
-}
-
-    public function update(Request $request, Schedule $schedule)
     {
-        $validated = $request->validate([
-            'schedule_name' => 'required|string|max:255',
-            'camera_id' => 'required|exists:cameras,id',
-            'start_date' => 'required|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
-            'start_time' => 'required',
-            'end_time' => 'required',
-            'recurrence' => 'required|in:once,daily,weekly,monthly',
-            'recurrence_days' => 'nullable|array',
-            'is_active' => 'boolean',
-        ]);
+        $validated = $this->validateSchedule($request);
 
-        $schedule->update($validated);
+        $schedule = DB::transaction(function () use ($validated, $request) {
+            $schedule = Schedule::create($this->schedulePayload($validated, $request));
+
+            ScheduleLog::create([
+                'schedule_id' => $schedule->id,
+                'status' => 'pending',
+            ]);
+
+            return $schedule->load('camera');
+        });
 
         return response()->json([
             'success' => true,
-            'message' => 'Schedule updated successfully'
+            'message' => 'Automatic counting schedule created and queued for the camera.',
+            'schedule' => $schedule,
+        ]);
+    }
+
+    public function update(Request $request, Schedule $schedule)
+    {
+        $validated = $this->validateSchedule($request);
+
+        $schedule->update($this->schedulePayload($validated, $request, false));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Schedule updated successfully',
+            'schedule' => $schedule->fresh('camera'),
         ]);
     }
 
     public function destroy(Schedule $schedule)
     {
         $schedule->delete();
+
         return response()->json([
             'success' => true,
-            'message' => 'Schedule deleted successfully'
+            'message' => 'Schedule deleted successfully',
         ]);
     }
 
     public function toggle(Schedule $schedule)
     {
-        $schedule->is_active = !$schedule->is_active;
+        $schedule->is_active = ! $schedule->is_active;
         $schedule->save();
-        
+
         return response()->json([
             'success' => true,
             'is_active' => $schedule->is_active,
-            'message' => $schedule->is_active ? 'Schedule activated' : 'Schedule deactivated'
+            'message' => $schedule->is_active ? 'Schedule activated' : 'Schedule deactivated',
         ]);
     }
 
     public function logs(Schedule $schedule)
     {
         $logs = $schedule->logs()->with('autoSession')->latest()->get();
+
         return response()->json(['logs' => $logs]);
+    }
+
+    private function validateSchedule(Request $request): array
+    {
+        return $request->validate([
+            'schedule_name' => 'required|string|max:255',
+            'road_name' => 'required|string|max:255',
+            'barangay' => 'nullable|string|max:255',
+            'city' => 'required|string|max:255',
+            'direction_from' => 'nullable|string|max:255',
+            'direction_to' => 'nullable|string|max:255',
+            'lanes' => 'required|integer|min:1|max:20',
+            'has_median' => 'required|boolean',
+            'camera_id' => 'required|exists:cameras,id',
+            'start_date' => 'required|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i',
+            'recurrence' => 'required|in:once,daily,weekly,monthly',
+            'recurrence_days' => 'nullable|array',
+            'is_active' => 'sometimes|boolean',
+        ]);
+    }
+
+    private function schedulePayload(array $validated, Request $request, bool $includeCreator = true): array
+    {
+        $payload = $validated;
+        $payload['base_capacity_per_lane'] = $validated['has_median'] ? 900 : 720;
+        $payload['is_active'] = $request->boolean('is_active', true);
+
+        if ($includeCreator) {
+            $payload['created_by'] = Auth::id();
+        }
+
+        return $payload;
     }
 }

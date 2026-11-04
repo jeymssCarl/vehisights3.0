@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\AutoSession;
 use App\Models\Camera;
 use App\Models\ManualCount;
-use App\Models\Session;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -66,15 +65,27 @@ class DashboardController extends Controller
             return ['time' => Carbon::parse($m->hour_start)->format('H:i').'–'.Carbon::parse($m->hour_end)->format('H:i'), 'station' => $m->road_name, 'pcu' => $m->total_pcu, 'los' => $m->los];
         });
 
-        // Active sessions
-        $activeSessions = Session::where('status', 'active')->with('detail')->latest('start_time')->limit(5)->get()->filter(fn ($s) => $s->detail)->map(function ($s) {
-            return ['code' => $s->session_code, 'road' => $s->road_name, 'vc' => number_format($s->detail->vc_ratio ?? 0, 2), 'los' => $s->detail->los ?? 'N/A'];
-        })->values();
+        // Active automatic camera sessions. A detail record is optional while
+        // counting is still in progress and is finalized when the run stops.
+        $activeSessions = AutoSession::query()
+            ->with('detail')
+            ->where('status', 'active')
+            ->latest('start_time')
+            ->limit(5)
+            ->get()
+            ->map(function ($session) {
+                return [
+                    'code' => $session->session_code,
+                    'road' => $session->road_name ?: $session->location,
+                    'vc' => number_format($session->detail->vc_ratio ?? 0, 2),
+                    'los' => $session->detail->los ?? 'N/A',
+                ];
+            });
 
         // Recent auto counts
-        $recentAuto = AutoSession::with('detail')->whereBetween('start_time', [$start, $end])->latest()->limit(10)->get()->filter(fn ($s) => $s->detail)->map(function ($a) {
+        $recentAuto = AutoSession::with('detail')->where('status', 'ended')->whereHas('detail')->whereBetween('start_time', [$start, $end])->latest('end_time')->limit(10)->get()->map(function ($a) {
             return ['time' => Carbon::parse($a->start_time)->format('H:i'), 'camera' => $a->camera_name, 'pcu' => $a->detail->total_pcu ?? 0, 'los' => $a->detail->los ?? '?'];
-        })->values();
+        });
 
         return [
             'total_pcu' => $totalPcu,

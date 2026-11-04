@@ -12,10 +12,19 @@ class AutoSession extends Model
     protected $table = 'auto_sessions';
 
     protected $fillable = [
+        'schedule_id',
+        'camera_id',
         'session_code',
         'camera_name',
         'ip_address',
         'location',
+        'road_name',
+        'barangay',
+        'city',
+        'direction',
+        'lanes',
+        'has_median',
+        'base_capacity_per_lane',
         'start_time',
         'end_time',
         'status',
@@ -25,6 +34,7 @@ class AutoSession extends Model
     protected $casts = [
         'start_time' => 'datetime',
         'end_time' => 'datetime',
+        'has_median' => 'boolean',
     ];
 
     public function user()
@@ -35,5 +45,15 @@ class AutoSession extends Model
     public function detail()
     {
         return $this->hasOne(AutoSessionDetail::class, 'auto_session_id');
+    }
+
+    public function schedule()
+    {
+        return $this->belongsTo(Schedule::class);
+    }
+
+    public function camera()
+    {
+        return $this->belongsTo(Camera::class);
     }
 }
