@@ -1,144 +1,285 @@
-// Dark mode
 const html = document.documentElement;
 const toggle = document.getElementById('themeToggle');
-const saved = localStorage.getItem('vehisights-theme') || 'light';
-html.setAttribute('data-theme', saved);
-toggle.addEventListener('click', () => {
+const root = document.querySelector('.wrap[data-forecast-url]');
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+const stationSelect = document.getElementById('stationSel');
+const dateSelect = document.getElementById('dateSel');
+const windowSelect = document.getElementById('windowSel');
+const trainButton = document.getElementById('trainModelBtn');
+
+let histChartObj = null;
+let predChartObj = null;
+let modelReady = root?.dataset.modelReady === '1';
+let forecastRequest = null;
+
+const savedTheme = localStorage.getItem('vehisights-theme') || 'light';
+html.setAttribute('data-theme', savedTheme);
+
+toggle?.addEventListener('click', () => {
   const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   html.setAttribute('data-theme', next);
   localStorage.setItem('vehisights-theme', next);
   rebuildCharts();
 });
 
-function isDark() { return html.getAttribute('data-theme') === 'dark'; }
-function getGridColor() { return isDark() ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'; }
-function getTextColor() { return isDark() ? '#9b9590' : '#737069'; }
+function isDark() {
+  return html.getAttribute('data-theme') === 'dark';
+}
 
-// Data
-const histHours = ['6AM','7AM','8AM','9AM','10AM','11AM','12PM','1PM','2PM','3PM','4PM','5PM','6PM','7PM','8PM','9PM'];
-const histPcu   = [125,245,412,589,678,745,812,789,856,924,1102,1245,1089,845,612,345];
-const predHoursAll = ['1PM','2PM','3PM','4PM','5PM','6PM','7PM','8PM'];
-const predActual   = [789, 856, 924, 1102, null, null, null, null];
-const predForecast = [null, null, null, 1102, 1390, 1210, 980, 720];
+function getGridColor() {
+  return isDark() ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+}
 
-let histChartObj = null, predChartObj = null;
+function getTextColor() {
+  return isDark() ? '#9b9590' : '#737069';
+}
 
-function makeHistChart() {
-  const ctx = document.getElementById('histChart').getContext('2d');
-  if (histChartObj) histChartObj.destroy();
-  histChartObj = new Chart(ctx, {
+function formatHour(value) {
+  return new Intl.DateTimeFormat('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+function escapeHtml(value) {
+  const element = document.createElement('div');
+  element.textContent = String(value ?? '');
+  return element.innerHTML;
+}
+
+function losClass(los) {
+  return `los-${String(los || 'a').toLowerCase()}`;
+}
+
+function setMessage(message = '', tone = 'info') {
+  const element = document.getElementById('predictionMessage');
+  if (!element) return;
+  element.textContent = message;
+  element.dataset.tone = tone;
+  element.hidden = !message;
+}
+
+function updateModelStatus(status) {
+  if (!status) return;
+  modelReady = Boolean(status.ready);
+  root.dataset.modelReady = modelReady ? '1' : '0';
+  const pill = document.getElementById('modelStatusPill');
+  if (!pill) return;
+  if (modelReady) {
+    const confidence = status.metrics?.validation_confidence || 0;
+    pill.innerHTML = `<div class="dot"></div>Model ready · ${Number(confidence).toFixed(0)}%`;
+  } else {
+    pill.innerHTML = `<div class="dot"></div>${status.available_rows}/${status.minimum_rows} training rows`;
+  }
+}
+
+function makeHistoricalChart(records = []) {
+  const canvas = document.getElementById('histChart');
+  if (!canvas) return;
+  histChartObj?.destroy();
+  histChartObj = new Chart(canvas.getContext('2d'), {
     type: 'bar',
-    data: { labels: histHours, datasets: [{ label: 'Avg PCU', data: histPcu, backgroundColor: 'rgba(123,29,29,0.75)', borderColor: '#7B1D1D', borderWidth: 1, borderRadius: 3, hoverBackgroundColor: '#7B1D1D' }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y.toLocaleString()} PCU` } } }, scales: { y: { beginAtZero: true, grid: { color: getGridColor() }, ticks: { color: getTextColor(), font: { size: 10 } } }, x: { grid: { display: false }, ticks: { color: getTextColor(), font: { size: 9 }, maxRotation: 0 } } } }
+    data: {
+      labels: records.map(row => formatHour(row.timestamp)),
+      datasets: [{
+        label: 'Recorded PCU',
+        data: records.map(row => Number(row.total_pcu)),
+        backgroundColor: 'rgba(123,29,29,0.75)',
+        borderColor: '#7B1D1D',
+        borderWidth: 1,
+        borderRadius: 3,
+      }],
+    },
+    options: chartOptions(true),
   });
 }
 
-function makePredChart() {
-  const ctx = document.getElementById('predChart').getContext('2d');
-  if (predChartObj) predChartObj.destroy();
-  predChartObj = new Chart(ctx, {
+function makePredictionChart(actual = [], predicted = []) {
+  const canvas = document.getElementById('predChart');
+  if (!canvas) return;
+  predChartObj?.destroy();
+  const labels = [...actual.map(row => formatHour(row.timestamp)), ...predicted.map(row => formatHour(row.timestamp))];
+  predChartObj = new Chart(canvas.getContext('2d'), {
     type: 'line',
-    data: { labels: predHoursAll, datasets: [
-      { label: 'Actual', data: predActual, borderColor: '#7B1D1D', backgroundColor: 'rgba(123,29,29,0.08)', borderWidth: 2, fill: true, tension: 0.3, pointBackgroundColor: '#7B1D1D', pointRadius: 3, spanGaps: false },
-      { label: 'Forecast', data: predForecast, borderColor: '#b45309', backgroundColor: 'rgba(180,83,9,0.06)', borderWidth: 2, borderDash: [5, 4], fill: true, tension: 0.3, pointBackgroundColor: '#b45309', pointRadius: 3, pointStyle: 'triangle', spanGaps: false }
-    ] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y ? `${c.parsed.y.toLocaleString()} PCU` : null } } }, scales: { y: { beginAtZero: false, min: 600, grid: { color: getGridColor() }, ticks: { color: getTextColor(), font: { size: 10 } } }, x: { grid: { display: false }, ticks: { color: getTextColor(), font: { size: 9 }, maxRotation: 0 } } } }
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Actual',
+          data: [...actual.map(row => Number(row.total_pcu)), ...predicted.map(() => null)],
+          borderColor: '#7B1D1D',
+          backgroundColor: 'rgba(123,29,29,0.08)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+        },
+        {
+          label: 'Forecast',
+          data: [...actual.map(() => null), ...predicted.map(row => Number(row.predicted_pcu))],
+          borderColor: '#b45309',
+          backgroundColor: 'rgba(180,83,9,0.06)',
+          borderWidth: 2,
+          borderDash: [5, 4],
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointStyle: 'triangle',
+        },
+      ],
+    },
+    options: chartOptions(false),
   });
 }
 
-// Updated forecast data - removed Risk field
-const forecastData = [
-  { h: '1:00 PM', pcu: 789, vc: 0.55, los: 'C', status: 'Moderate', pred: false },
-  { h: '2:00 PM', pcu: 856, vc: 0.59, los: 'C', status: 'Moderate', pred: false },
-  { h: '3:00 PM', pcu: 924, vc: 0.64, los: 'D', status: 'Heavy', pred: false },
-  { h: '4:00 PM', pcu: 1102, vc: 0.77, los: 'D', status: 'Heavy', pred: false },
-  { h: '5:00 PM', pcu: 1390, vc: 0.97, los: 'E', status: 'Severe', pred: true },
-  { h: '6:00 PM', pcu: 1210, vc: 0.84, los: 'E', status: 'Severe', pred: true },
-  { h: '7:00 PM', pcu: 980, vc: 0.68, los: 'D', status: 'Heavy', pred: true },
-  { h: '8:00 PM', pcu: 720, vc: 0.50, los: 'C', status: 'Moderate', pred: true },
-  { h: '9:00 PM', pcu: 450, vc: 0.31, los: 'B', status: 'Light', pred: true },
-  { h: '10:00 PM', pcu: 280, vc: 0.19, los: 'A', status: 'Free Flow', pred: true },
-];
-
-function losClass(l) {
-  const m = { A: 'los-a', B: 'los-b', C: 'los-c', D: 'los-d', E: 'los-e', F: 'los-f' };
-  return m[l] || 'los-a';
+function chartOptions(beginAtZero) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: context => `${formatNumber(context.parsed.y)} PCU` } },
+    },
+    scales: {
+      y: { beginAtZero, grid: { color: getGridColor() }, ticks: { color: getTextColor(), font: { size: 10 } } },
+      x: { grid: { display: false }, ticks: { color: getTextColor(), font: { size: 9 }, maxRotation: 0 } },
+    },
+  };
 }
 
-function buildTable() {
+function buildForecastTable(predictions = []) {
   const tbody = document.getElementById('forecastBody');
-  tbody.innerHTML = forecastData.map(r => `
-    <tr class="${r.pred ? 'pred-row' : ''}">
-      <td style="font-family:'DM Mono',monospace;font-size:0.73rem;">${r.h}</td>
-      <td style="font-family:'DM Mono',monospace;font-weight:700;">${r.pcu.toLocaleString()}</td>
-      <td style="font-family:'DM Mono',monospace;">${r.vc.toFixed(2)}</td>
-      <td><span class="los-badge ${losClass(r.los)}">${r.los}</span></td>
-      <td>${r.status}</td>
-      <td style="font-size:0.68rem;color:${r.pred ? 'var(--amber)' : 'var(--text-muted)'};">${r.pred ? 'Forecast' : 'Actual'}</td>
+  if (!tbody) return;
+  if (!predictions.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="prediction-empty">No forecast is available.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = predictions.map(row => `
+    <tr class="pred-row">
+      <td class="mono-value">${formatHour(row.timestamp)}</td>
+      <td class="mono-value strong">${formatNumber(row.predicted_pcu)}</td>
+      <td class="mono-value">${Number(row.predicted_vc_ratio).toFixed(2)}</td>
+      <td><span class="los-badge ${losClass(row.predicted_los)}">${escapeHtml(row.predicted_los)}</span></td>
+      <td>${escapeHtml(row.status)}</td>
+      <td class="forecast-type ${row.rfc_matches_capacity_los ? '' : 'classifier-disagreement'}">LOS ${escapeHtml(row.rfc_predicted_los)} · ${Number(row.rfc_confidence || 0).toFixed(0)}%</td>
     </tr>
   `).join('');
 }
 
-// Auto-refresh function (no button needed)
-function refreshForecast() {
-  const station = document.getElementById('stationSel').value;
-  document.getElementById('forecastStation').innerText = station;
-  
-  // Update KPIs based on station selection
-  const kpiCurrent = document.getElementById('kpiCurrent');
-  const kpiNext = document.getElementById('kpiNext');
-  const kpiPeak = document.getElementById('kpiPeak');
-  const kpiConf = document.getElementById('kpiConf');
-  
-  if (station === 'Timog Avenue') {
-    kpiCurrent.innerText = '845';
-    kpiNext.innerText = '1,020';
-    kpiPeak.innerText = '5:00 PM';
-    kpiConf.innerText = '89';
-  } else if (station === 'Apokon Intersection') {
-    kpiCurrent.innerText = '632';
-    kpiNext.innerText = '780';
-    kpiPeak.innerText = '4:30 PM';
-    kpiConf.innerText = '86';
-  } else {
-    kpiCurrent.innerText = '412';
-    kpiNext.innerText = '510';
-    kpiPeak.innerText = '5:30 PM';
-    kpiConf.innerText = '84';
+function updateSummary(payload) {
+  const predictions = payload.forecast?.predictions || [];
+  const historical = payload.historical_data || [];
+  const current = historical.at(-1);
+  const next = predictions[0];
+  const peak = predictions.reduce((best, row) => !best || Number(row.predicted_pcu) > Number(best.predicted_pcu) ? row : best, null);
+  const confidence = payload.forecast?.metrics?.validation_confidence || 0;
+
+  document.getElementById('kpiCurrent').textContent = current ? formatNumber(current.total_pcu) : '—';
+  document.getElementById('kpiCurrentSub').textContent = current ? `Recorded ${formatHour(current.timestamp)}` : 'No historical record';
+  document.getElementById('kpiNext').textContent = next ? formatNumber(next.predicted_pcu) : '—';
+  document.getElementById('kpiNextSub').textContent = next ? `PCU at ${formatHour(next.timestamp)}` : 'Awaiting forecast';
+  document.getElementById('kpiPeak').textContent = peak ? formatHour(peak.timestamp) : '—';
+  document.getElementById('kpiPeakSub').textContent = peak ? `LOS ${peak.predicted_los} · ${formatNumber(peak.predicted_pcu)} PCU` : 'Awaiting forecast';
+  document.getElementById('kpiConf').textContent = `${Number(confidence).toFixed(0)}%`;
+  document.getElementById('kpiConfSub').textContent = 'Time-series validation estimate';
+  document.getElementById('forecastStation').textContent = stationSelect.value;
+  document.getElementById('forecastTableTitle').textContent = `Traffic Forecast — Next ${predictions.length} Hours`;
+  document.getElementById('predictionChartRange').textContent = `Next ${predictions.length} forecast hours`;
+  document.getElementById('historicalChartRange').textContent = `${historical.length} latest recorded hours`;
+  document.getElementById('insightConfidence').innerHTML = `<div class="dot"></div>Validation confidence: ${Number(confidence).toFixed(0)}%`;
+
+  const highestLos = peak?.predicted_los || 'N/A';
+  const agreementCount = predictions.filter(row => row.rfc_matches_capacity_los).length;
+  document.getElementById('insightItems').innerHTML = [
+    `${predictions.length} hourly forecasts generated for ${stationSelect.value}.`,
+    peak ? `Expected peak is ${formatNumber(peak.predicted_pcu)} PCU at ${formatHour(peak.timestamp)}.` : 'No peak forecast is available.',
+    `Highest forecast Level of Service: ${highestLos}.`,
+    `RFC agreed with capacity-derived LOS in ${agreementCount} of ${predictions.length} forecast hours.`,
+    `Capacity used for V/C calculation: ${formatNumber(payload.forecast?.capacity)} PCU/hour.`,
+  ].map(text => `<div class="insight-item">${escapeHtml(text)}</div>`).join('');
+}
+
+async function refreshForecast() {
+  if (!root || !stationSelect?.value) {
+    setMessage('Register a road through Manual Sessions or Scheduling before requesting a forecast.', 'warning');
+    return;
   }
-  
-  // Update insights text based on station
-  const insightItems = document.querySelectorAll('.insight-item');
-  if (station === 'Timog Avenue') {
-    insightItems[0].textContent = 'Traffic expected to surge 22% between 4PM–6PM today.';
-    insightItems[1].textContent = 'LOS at Timog Avenue likely to degrade to E by 5PM.';
-  } else if (station === 'Apokon Intersection') {
-    insightItems[0].textContent = 'Moderate traffic expected with peak at 4:30PM.';
-    insightItems[1].textContent = 'LOS at Apokon Intersection likely to stay at D throughout rush hour.';
-  } else {
-    insightItems[0].textContent = 'Light to moderate traffic expected throughout the day.';
-    insightItems[1].textContent = 'LOS at Pioneer Street expected to remain at C or better.';
+  if (!modelReady) {
+    setMessage('The model is not trained yet. Collect traffic records, then select Train Model.', 'warning');
+    return;
+  }
+
+  forecastRequest?.abort();
+  forecastRequest = new AbortController();
+  setMessage('Generating forecast…');
+  try {
+    const response = await fetch(root.dataset.forecastUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+      body: JSON.stringify({
+        road_name: stationSelect.value,
+        prediction_date: dateSelect.value,
+        forecast_window: Number(windowSelect.value),
+      }),
+      signal: forecastRequest.signal,
+    });
+    const payload = await response.json();
+    updateModelStatus(payload.model_status);
+    if (!response.ok || !payload.success) throw new Error(payload.message || 'Forecast request failed.');
+    const predictions = payload.forecast?.predictions || [];
+    buildForecastTable(predictions);
+    makeHistoricalChart(payload.historical_data || []);
+    makePredictionChart(payload.actual_data || [], predictions);
+    updateSummary(payload);
+    setMessage('');
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    buildForecastTable([]);
+    setMessage(error.message, 'error');
+  }
+}
+
+async function trainModel() {
+  if (!root || !trainButton) return;
+  trainButton.disabled = true;
+  trainButton.textContent = 'Training…';
+  setMessage('Training the Random Forest model…');
+  try {
+    const response = await fetch(root.dataset.trainUrl, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+    });
+    const payload = await response.json();
+    updateModelStatus(payload.model_status);
+    if (!response.ok || !payload.success) throw new Error(payload.message || 'Training failed.');
+    setMessage(payload.message, 'success');
+    await refreshForecast();
+  } catch (error) {
+    setMessage(error.message, 'error');
+  } finally {
+    trainButton.disabled = false;
+    trainButton.textContent = 'Train Model';
   }
 }
 
 function rebuildCharts() {
-  makeHistChart();
-  makePredChart();
+  makeHistoricalChart([]);
+  makePredictionChart([], []);
+  if (modelReady) refreshForecast();
 }
 
-// Auto-refresh on page load and every 15 minutes
-document.addEventListener('DOMContentLoaded', function() {
-  // Initial load - automatic
+[stationSelect, dateSelect, windowSelect].forEach(element => element?.addEventListener('change', refreshForecast));
+trainButton?.addEventListener('click', trainModel);
+
+document.addEventListener('DOMContentLoaded', () => {
+  makeHistoricalChart([]);
+  makePredictionChart([], []);
   refreshForecast();
-  
-  // Auto-refresh every 15 minutes (900,000 ms)
-  setInterval(refreshForecast, 900000);
+  setInterval(() => modelReady && refreshForecast(), 900000);
 });
 
-// init charts
-buildTable();
-makeHistChart();
-makePredChart();
-
-// Expose for debugging
 window.refreshForecast = refreshForecast;

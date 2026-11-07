@@ -50,7 +50,7 @@
         <span>Reports</span>
       </a>
     </nav>
-    <div class="sidebar-footer"><div class="user-card"><div class="user-avatar">JD</div><div><div class="user-name">Juan Dela Cruz</div><div class="user-role">Traffic Analyst</div></div></div></div>
+    <div class="sidebar-footer"><div class="user-card"><div class="user-avatar">{{ strtoupper(substr(auth()->user()->name ?? 'U', 0, 2)) }}</div><div><div class="user-name">{{ auth()->user()->name ?? 'User' }}</div><div class="user-role">{{ str_replace('_', ' ', auth()->user()->role ?? 'user') }}</div></div></div></div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -69,42 +69,50 @@
       </div>
     </div>
     <div class="content">
-      <div class="wrap">
+      <div class="wrap"
+           data-forecast-url="{{ route('predictions.get') }}"
+           data-train-url="{{ route('predictions.train') }}"
+           data-model-ready="{{ $modelStatus['ready'] ? '1' : '0' }}">
         <div class="topbar-dash">
           <div class="topbar-dash-left">
             <h1>Traffic Prediction</h1>
-            <p>AI-powered forecasts based on historical patterns</p>
+            <p>Hybrid Random Forest PCU forecasting and LOS classification</p>
           </div>
-          <div class="confidence-pill"><div class="dot"></div>Model confidence: 89%</div>
+          <div class="prediction-actions">
+            <div class="confidence-pill" id="modelStatusPill"><div class="dot"></div>
+              @if ($modelStatus['ready'])
+                Model ready · {{ number_format($modelStatus['metrics']['validation_confidence'] ?? 0, 0) }}%
+              @else
+                {{ $modelStatus['available_rows'] }}/{{ $modelStatus['minimum_rows'] }} training rows
+              @endif
+            </div>
+            <button type="button" class="train-model-btn" id="trainModelBtn">Train Model</button>
+          </div>
         </div>
 
-        <!-- Filters - No Run Forecast button -->
         <div class="filters">
-          <div class="fg"><label>Station / Road</label><select id="stationSel" onchange="refreshForecast()"><option>Timog Avenue</option><option>Apokon Intersection</option><option>Pioneer Street</option></select></div>
-          <div class="fg"><label>Date</label><select id="dateSel" onchange="refreshForecast()"><option>Today — Monday, Jun 2</option><option>Tomorrow — Tuesday, Jun 3</option><option>Wednesday, Jun 4</option></select></div>
-          <div class="fg"><label>Forecast Window</label><select id="windowSel" onchange="refreshForecast()"><option>Next 24 Hours</option><option>Next 12 Hours</option><option>Next 6 Hours</option></select></div>
+          <div class="fg"><label for="stationSel">Station / Road</label><select id="stationSel" @disabled($roads->isEmpty())>@forelse($roads as $road)<option value="{{ $road }}">{{ $road }}</option>@empty<option value="">No registered roads</option>@endforelse</select></div>
+          <div class="fg"><label for="dateSel">Forecast Date</label><input id="dateSel" type="date" value="{{ now()->toDateString() }}"></div>
+          <div class="fg"><label for="windowSel">Forecast Window</label><select id="windowSel"><option value="24">Next 24 Hours</option><option value="12">Next 12 Hours</option><option value="6">Next 6 Hours</option></select></div>
         </div>
 
-        <!-- KPI Cards -->
         <div class="kpi-grid">
-          <div class="kpi"><div class="kpi-label">Current Traffic</div><div class="kpi-value" id="kpiCurrent">845</div><div class="kpi-sub">PCU right now &nbsp;<span class="kpi-badge badge-up">+12% vs avg</span></div></div>
-          <div class="kpi"><div class="kpi-label">Predicted Next Hour</div><div class="kpi-value" id="kpiNext">1,020</div><div class="kpi-sub">PCU at 5:00 PM &nbsp;<span class="kpi-badge badge-pred">Forecast</span></div></div>
-          <div class="kpi"><div class="kpi-label">Peak Forecast</div><div class="kpi-value" id="kpiPeak">5:00 PM</div><div class="kpi-sub">Expected peak &nbsp;<span class="kpi-badge badge-up">LOS E</span></div></div>
-          <div class="kpi"><div class="kpi-label">Forecast Confidence</div><div class="kpi-value" id="kpiConf">89%</div><div class="kpi-sub">Based on 52 Mondays &nbsp;<span class="kpi-badge badge-stable">High</span></div></div>
+          <div class="kpi"><div class="kpi-label">Current Traffic</div><div class="kpi-value" id="kpiCurrent">—</div><div class="kpi-sub" id="kpiCurrentSub">Latest recorded PCU</div></div>
+          <div class="kpi"><div class="kpi-label">Predicted Next Hour</div><div class="kpi-value" id="kpiNext">—</div><div class="kpi-sub" id="kpiNextSub">Awaiting forecast</div></div>
+          <div class="kpi"><div class="kpi-label">Peak Forecast</div><div class="kpi-value" id="kpiPeak">—</div><div class="kpi-sub" id="kpiPeakSub">Awaiting forecast</div></div>
+          <div class="kpi"><div class="kpi-label">Validation Confidence</div><div class="kpi-value" id="kpiConf">—</div><div class="kpi-sub" id="kpiConfSub">Time-series validation estimate</div></div>
         </div>
 
-        <!-- CHARTS ROW -->
         <div class="two-col">
-          <div class="card"><div class="card-head"><h3>Historical Traffic</h3><span>Past 16 hours · Mondays avg</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Historical avg</div></div><div class="chart-wrap"><canvas id="histChart"></canvas></div></div></div>
-          <div class="card"><div class="card-head"><h3>Prediction Trend</h3><span>Next 8 hours · AI forecast</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Actual</div><div class="leg-item"><div class="leg-dashed" style="border-color:#b45309;"></div>Predicted</div></div><div class="chart-wrap"><canvas id="predChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><h3>Historical Traffic</h3><span id="historicalChartRange">Latest 24 recorded hours</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Recorded PCU</div></div><div class="chart-wrap"><canvas id="histChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><h3>Prediction Trend</h3><span id="predictionChartRange">Selected forecast window</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Actual</div><div class="leg-item"><div class="leg-dashed" style="border-color:#b45309;"></div>Predicted</div></div><div class="chart-wrap"><canvas id="predChart"></canvas></div></div></div>
         </div>
 
-        <!-- FORECAST TABLE - Removed Risk column -->
-        <div class="full-card"><div class="card-head"><h3>Traffic Forecast — Next 24 Hours</h3><span id="forecastStation">Timog Avenue</span></div>
-          <table class="forecast-table"><thead><tr><th>Hour</th><th>PCU</th><th>V/C</th><th>LOS</th><th>Status</th><th>Type</th></tr></thead><tbody id="forecastBody"></tbody></table>
+        <div class="full-card"><div class="card-head"><h3 id="forecastTableTitle">Traffic Forecast</h3><span id="forecastStation">{{ $roads->first() ?? 'No registered road' }}</span></div>
+          <div class="prediction-message" id="predictionMessage" aria-live="polite"></div>
+          <table class="forecast-table"><thead><tr><th>Hour</th><th>PCU</th><th>V/C</th><th>LOS</th><th>Status</th><th>RFC Classification</th></tr></thead><tbody id="forecastBody"><tr><td colspan="6" class="prediction-empty">No forecast has been generated.</td></tr></tbody></table>
         </div>
 
-        <!-- BOTTOM SECTION - Only Insights (removed Congestion Risk) -->
         <div class="bottom-section">
           <div class="insight-box">
             <div class="insight-head">
@@ -115,11 +123,8 @@
               </svg>
               <span>Prediction Insights</span>
             </div>
-            <div class="insight-item">Traffic expected to surge 22% between 4PM–6PM today.</div>
-            <div class="insight-item">LOS at Timog Avenue likely to degrade to E by 5PM.</div>
-            <div class="insight-item">Based on 52 historical Mondays in the last 90 days.</div>
-            <div class="insight-item">Heavy rain correlation detected — may increase by additional 8%.</div>
-            <div style="margin-top:12px;"><div class="confidence-pill"><div class="dot"></div>Confidence: 89%</div></div>
+            <div id="insightItems"><div class="insight-item">Train the model after sufficient traffic-history records have been collected.</div></div>
+            <div style="margin-top:12px;"><div class="confidence-pill" id="insightConfidence"><div class="dot"></div>Model not trained</div></div>
           </div>
         </div>
       </div>
