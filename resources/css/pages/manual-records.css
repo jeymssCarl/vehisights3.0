@@ -320,7 +320,15 @@ body {
   border: 1px solid var(--border);
 }
 .btn-today-filter:hover { background: var(--surface3); border-color: var(--border-active); }
-.btn-delete-all {
+.record-delete-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+.btn-delete-all,
+.btn-delete-selected {
   padding: 6px 16px;
   border-radius: 30px;
   font-size: 0.7rem;
@@ -334,18 +342,34 @@ body {
   align-items: center;
   gap: 6px;
 }
-.btn-delete-all:hover:not(:disabled) {
+.btn-delete-all:hover:not(:disabled),
+.btn-delete-selected:hover:not(:disabled) {
   background: var(--red);
   color: white;
   border-color: var(--red);
 }
-.btn-delete-all:disabled {
+.btn-delete-all:disabled,
+.btn-delete-selected:disabled {
   cursor: not-allowed;
   opacity: 0.45;
   background: var(--surface2);
   color: var(--text-dim);
   border-color: var(--border);
 }
+.btn-delete-selected .selected-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: currentColor;
+  color: var(--surface);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+.btn-delete-selected:disabled .selected-count { opacity: 0.65; }
 @media (max-width: 1180px) {
   .filter-left { flex: 1 1 100%; }
 }
@@ -356,7 +380,7 @@ body {
   .filter-left .search-wrap { min-width: 0; }
   .date-filter-label { width: 100%; }
   .date-filter-input { flex: 1 1 130px; width: auto; min-width: 0; }
-  .btn-delete-all { margin-left: auto; }
+  .record-delete-actions { width: 100%; }
 }
 .table-wrapper {
   background: var(--surface); border: 1px solid var(--border);
@@ -385,6 +409,32 @@ body {
 [data-theme="dark"] .sessions-table td { border-bottom-color: rgba(255,255,255,0.04); }
 .sessions-table tr:last-child td { border-bottom: none; }
 .sessions-table tbody tr:hover td { background: var(--surface2); }
+.sessions-table tbody tr.is-selected td {
+  background: color-mix(in srgb, var(--surface) 96%, var(--red) 4%);
+}
+.sessions-table tbody tr.is-selected:hover td {
+  background: color-mix(in srgb, var(--surface) 93%, var(--red) 7%);
+}
+.sessions-table .selection-column {
+  width: 48px;
+  min-width: 48px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.record-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--maroon);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+.record-checkbox:hover,
+.record-checkbox:focus-visible { opacity: 0.9; }
+.record-checkbox:checked,
+.record-checkbox:indeterminate { opacity: 0.82; }
+.record-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .status-badge {
   display: inline-block; padding: 4px 10px; border-radius: 30px;
   font-size: 0.7rem; font-weight: 600;

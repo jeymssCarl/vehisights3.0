@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Session;
-use App\Models\TrafficHistory;
 use App\Services\ActivityNotificationService;
+use App\Services\TrafficHistorySyncService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +27,7 @@ class SessionController extends Controller
         return view('manual-records', compact('sessions'));
     }
 
-    public function update(Request $request, Session $session)
+    public function update(Request $request, Session $session, TrafficHistorySyncService $historySync)
     {
         $validated = $request->validate([
             'road_name' => 'required|string|max:255',
@@ -42,7 +42,11 @@ class SessionController extends Controller
             'status' => 'required|in:ended',
         ]);
 
-        DB::transaction(function () use ($session, $validated) {
+        $requestedStart = Carbon::parse($validated['start_time']);
+        $requestedEnd = $validated['end_time'] ? Carbon::parse($validated['end_time']) : $requestedStart->copy()->addHour();
+        $this->ensureStationTimeIsAvailable($session, $validated['road_name'], $requestedStart, $requestedEnd);
+
+        DB::transaction(function () use ($session, $validated, $historySync) {
             $session->update($validated + [
                 'base_capacity_per_lane' => $validated['has_median'] ? 900 : 720,
             ]);
@@ -65,6 +69,8 @@ class SessionController extends Controller
                     'lanes' => $validated['lanes'],
                     'day_classification' => $validated['day_classification'] ?? null,
                 ]);
+
+                $historySync->syncManual($session->fresh(), $session->manualCount->fresh());
             }
         });
 
@@ -76,19 +82,12 @@ class SessionController extends Controller
         ]);
     }
 
-    public function destroy(Session $session)
+    public function destroy(Session $session, TrafficHistorySyncService $historySync)
     {
         $sessionCode = $session->session_code;
         $sessionId = $session->id;
-        DB::transaction(function () use ($session) {
-            $start = Carbon::parse($session->start_time);
-
-            TrafficHistory::query()
-                ->where('road_name', $session->road_name)
-                ->whereDate('hour_timestamp', $start->toDateString())
-                ->whereTime('hour_timestamp', $start->format('H:i:s'))
-                ->delete();
-
+        DB::transaction(function () use ($session, $historySync) {
+            $historySync->deleteManual($session);
             $session->delete();
         });
 
@@ -101,20 +100,14 @@ class SessionController extends Controller
         ]);
     }
 
-    public function destroyAll()
+    public function destroyAll(TrafficHistorySyncService $historySync)
     {
         $deletedCount = Session::query()->whereHas('manualCount')->count();
-        DB::transaction(function () {
+        DB::transaction(function () use ($historySync) {
             $sessions = Session::query()->whereHas('manualCount')->get();
 
             foreach ($sessions as $session) {
-                $start = Carbon::parse($session->start_time);
-                TrafficHistory::query()
-                    ->where('road_name', $session->road_name)
-                    ->whereDate('hour_timestamp', $start->toDateString())
-                    ->whereTime('hour_timestamp', $start->format('H:i:s'))
-                    ->delete();
-
+                $historySync->deleteManual($session);
                 $session->delete();
             }
         });
@@ -128,7 +121,48 @@ class SessionController extends Controller
         ]);
     }
 
-    public function fullUpdate(Request $request, Session $session)
+    public function destroySelected(Request $request, TrafficHistorySyncService $historySync)
+    {
+        $validated = $request->validate([
+            'session_ids' => 'required|array|min:1',
+            'session_ids.*' => 'required|integer|distinct|exists:sessions,id',
+        ]);
+
+        $sessions = Session::query()
+            ->whereIn('id', $validated['session_ids'])
+            ->whereHas('manualCount')
+            ->get();
+
+        if ($sessions->isEmpty()) {
+            throw ValidationException::withMessages([
+                'session_ids' => 'No valid manual records were selected.',
+            ]);
+        }
+
+        DB::transaction(function () use ($sessions, $historySync) {
+            foreach ($sessions as $session) {
+                $historySync->deleteManual($session);
+                $session->delete();
+            }
+        });
+
+        ActivityNotificationService::send(
+            'Manual records deleted',
+            auth()->user()->name.' deleted '.$sessions->count().' selected manual record(s).',
+            '/manual-records',
+            'manual_session',
+            'deleted'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $sessions->count().' selected manual record(s) deleted successfully',
+            'deleted_count' => $sessions->count(),
+            'refresh_dashboard' => true,
+        ]);
+    }
+
+    public function fullUpdate(Request $request, Session $session, TrafficHistorySyncService $historySync)
     {
         $validated = $request->validate([
             'road_name' => 'required|string|max:255',
@@ -156,9 +190,11 @@ class SessionController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($session, $validated) {
-            $oldRoad = $session->road_name;
-            $oldStart = Carbon::parse($session->start_time);
+        $requestedStart = Carbon::parse($validated['start_time']);
+        $requestedEnd = $validated['end_time'] ? Carbon::parse($validated['end_time']) : $requestedStart->copy()->addHour();
+        $this->ensureStationTimeIsAvailable($session, $validated['road_name'], $requestedStart, $requestedEnd);
+
+        DB::transaction(function () use ($session, $validated, $historySync) {
             $newStart = Carbon::parse($validated['start_time']);
             $newEnd = $validated['end_time'] ? Carbon::parse($validated['end_time']) : $newStart->copy()->addHour();
             [$directionFrom, $directionTo] = $this->splitDirection($validated['direction']);
@@ -206,19 +242,7 @@ class SessionController extends Controller
                 ]);
             }
 
-            TrafficHistory::query()
-                ->where('road_name', $oldRoad)
-                ->whereDate('hour_timestamp', $oldStart->toDateString())
-                ->whereTime('hour_timestamp', $oldStart->format('H:i:s'))
-                ->update([
-                    'road_name' => $validated['road_name'],
-                    'direction' => $validated['direction'],
-                    'hour_timestamp' => $newStart,
-                    'total_pcu' => $validated['total_pcu'],
-                    'vc_ratio' => $validated['vc'],
-                    'los' => $validated['los'],
-                    'counts' => $validated['counts'],
-                ]);
+            $historySync->syncManual($session->fresh(), $session->manualCount->fresh());
         });
 
         ActivityNotificationService::send('Manual session updated', auth()->user()->name.' updated '.$session->session_code.' and its vehicle counts.', '/manual-records', 'manual_session', 'updated', $session->id);
@@ -237,5 +261,22 @@ class SessionController extends Controller
             filled($parts[0] ?? null) ? trim($parts[0]) : null,
             filled($parts[1] ?? null) ? trim($parts[1]) : null,
         ];
+    }
+
+    private function ensureStationTimeIsAvailable(Session $session, string $roadName, Carbon $start, Carbon $end): void
+    {
+        $overlapExists = Session::query()
+            ->whereHas('manualCount')
+            ->where('id', '!=', $session->id)
+            ->whereRaw('LOWER(TRIM(road_name)) = ?', [mb_strtolower(trim($roadName))])
+            ->where('start_time', '<', $end)
+            ->where('end_time', '>', $start)
+            ->exists();
+
+        if ($overlapExists) {
+            throw ValidationException::withMessages([
+                'start_time' => 'This station already has another manual session during the selected date and time. Delete, move, or edit the conflicting record first.',
+            ]);
+        }
     }
 }

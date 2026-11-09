@@ -37,7 +37,7 @@ class PredictionPipelineTest(unittest.TestCase):
                 )
 
             training_path.write_text(json.dumps({"records": records}), encoding="utf-8")
-            subprocess.run(
+            training = subprocess.run(
                 [
                     sys.executable,
                     str(ML_DIRECTORY / "train_random_forest.py"),
@@ -48,10 +48,11 @@ class PredictionPipelineTest(unittest.TestCase):
                     "--metadata",
                     str(metadata_path),
                 ],
-                check=True,
                 capture_output=True,
                 text=True,
             )
+            if training.returncode != 0:
+                self.fail(training.stderr or training.stdout)
 
             request_path.write_text(
                 json.dumps(
@@ -82,12 +83,17 @@ class PredictionPipelineTest(unittest.TestCase):
                 text=True,
             )
             payload = json.loads(forecast.stdout)
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
 
             self.assertTrue(payload["success"])
+            self.assertEqual("RandomForestClassifier", payload["algorithm"])
+            self.assertEqual("RandomForestClassifier", metadata["algorithm"])
+            self.assertEqual("rfc-los-v2", metadata["artifact_schema"])
             self.assertEqual(6, len(payload["predictions"]))
             self.assertTrue(all(row["predicted_pcu"] >= 0 for row in payload["predictions"]))
             self.assertTrue(all(row["predicted_los"] in "ABCDEF" for row in payload["predictions"]))
-            self.assertTrue(all(row["rfc_predicted_los"] in "ABCDEF" for row in payload["predictions"]))
+            self.assertTrue(all(0 <= row["confidence_score"] <= 100 for row in payload["predictions"]))
+            self.assertTrue(all(row["derivation_basis"] for row in payload["predictions"]))
 
 
 if __name__ == "__main__":

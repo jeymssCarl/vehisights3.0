@@ -57,4 +57,9 @@ class AutoSession extends Model
     {
         return $this->belongsTo(Camera::class);
     }
+
+    public function trafficHistory()
+    {
+        return $this->hasOne(TrafficHistory::class);
+    }
 }

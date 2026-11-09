@@ -30,6 +30,21 @@
 
   let counts = new Array(vehicleTypes.length).fill(0);
   let pcuTotals = new Array(vehicleTypes.length).fill(0);
+  const retainedFieldIds = ['roadName', 'barangay', 'city', 'dirFrom', 'dirTo', 'date', 'hasMedian', 'lanes', 'dayClassification'];
+  let retainedDetails = null;
+  localStorage.removeItem('vehisights-manual-session-daily-draft');
+
+  function captureRetainedDetails() {
+    return Object.fromEntries(retainedFieldIds.map(id => [id, document.getElementById(id)?.value ?? '']));
+  }
+
+  function restoreRetainedDetails() {
+    if (!retainedDetails) return;
+    retainedFieldIds.forEach(id => {
+      const field = document.getElementById(id);
+      if (field && Object.prototype.hasOwnProperty.call(retainedDetails, id)) field.value = retainedDetails[id];
+    });
+  }
 
   function getBaseCapacity() {
     const hasMedian = document.getElementById('hasMedian').value === '1';
@@ -132,16 +147,45 @@
     document.getElementById('successModal').classList.remove('active');
   }
 
+  function showErrorNotice(message) {
+    if (window.VehiSightsUI?.showNotice) {
+      window.VehiSightsUI.showNotice({ title: 'Session not saved', message, tone: 'warning' });
+      return;
+    }
+    alert(message);
+  }
+
+  function resetManualCountForm() {
+    ['roadName', 'barangay', 'city', 'dirFrom', 'dirTo', 'date', 'hourStart', 'hourEnd', 'lanes']
+      .forEach(id => {
+        const field = document.getElementById(id);
+        if (field) field.value = field.defaultValue;
+      });
+
+    ['hasMedian', 'dayClassification'].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.selectedIndex = 0;
+    });
+
+    restoreRetainedDetails();
+
+    counts.fill(0);
+    pcuTotals.fill(0);
+    renderTable();
+    updateSummary();
+    document.getElementById('roadName')?.focus();
+  }
+
   // Submit button with fetch and custom modal
   document.getElementById('submitManualCount').addEventListener('click', async () => {
     const hasMedian = document.getElementById('hasMedian').value === '1';
     const lanes = parseInt(document.getElementById('lanes').value) || 1;
     const data = {
-      road: document.getElementById('roadName').value,
-      barangay: document.getElementById('barangay').value,
-      city: document.getElementById('city').value,
-      dir_from: document.getElementById('dirFrom').value,
-      dir_to: document.getElementById('dirTo').value,
+      road: document.getElementById('roadName').value.trim(),
+      barangay: document.getElementById('barangay').value.trim(),
+      city: document.getElementById('city').value.trim(),
+      dir_from: document.getElementById('dirFrom').value.trim(),
+      dir_to: document.getElementById('dirTo').value.trim(),
       day_classification: document.getElementById('dayClassification').value || null,
       date: document.getElementById('date').value,
       hour_start: document.getElementById('hourStart').value,
@@ -150,7 +194,7 @@
       lanes: lanes,
       counts: counts,
       pcu_totals: pcuTotals,
-      total_pcu: parseInt(document.getElementById('totalPcuDisplay').innerText),
+      total_pcu: parseFloat(document.getElementById('totalPcuDisplay').innerText),
       vc: parseFloat(document.getElementById('vcRatioDisplay').innerText),
       los: document.getElementById('losDisplay').innerText
     };
@@ -174,23 +218,18 @@
         body: JSON.stringify(data)
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Server response:', text);
-        throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
-      }
-
       const result = await response.json();
-      if (result.success) {
+      if (response.ok && result.success) {
+        retainedDetails = captureRetainedDetails();
+        resetManualCountForm();
         showSuccessModal('Manual count saved successfully!');
-        // Optional: reset counts after save
-        // counts.fill(0); pcuTotals.fill(0); renderTable(); updateSummary();
       } else {
-        alert('❌ Error: ' + (result.message || 'Something went wrong'));
+        const firstError = Object.values(result.errors || {}).flat().find(Boolean);
+        showErrorNotice(firstError || result.message || 'The manual session could not be saved.');
       }
     } catch (error) {
       console.error('Fetch error:', error);
-      alert('❌ Connection error: ' + error.message);
+      showErrorNotice('The manual session could not be saved. Check your connection and try again.');
     } finally {
       btn.disabled = false;
       btn.textContent = 'Save Manual Count';
@@ -201,6 +240,12 @@
   document.getElementById('closeSuccessModalBtn').addEventListener('click', closeSuccessModal);
   document.getElementById('successModal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('successModal')) closeSuccessModal();
+  });
+
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    retainedDetails = null;
+    resetManualCountForm();
   });
 
   renderTable();

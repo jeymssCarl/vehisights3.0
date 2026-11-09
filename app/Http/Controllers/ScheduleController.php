@@ -49,7 +49,7 @@ class ScheduleController extends Controller
 
     public function update(Request $request, Schedule $schedule)
     {
-        $validated = $this->validateSchedule($request);
+        $validated = $this->validateSchedule($request, $schedule);
 
         $schedule->update($this->schedulePayload($validated, $request, false));
 
@@ -104,7 +104,7 @@ class ScheduleController extends Controller
         return response()->json(['logs' => $logs]);
     }
 
-    private function validateSchedule(Request $request): array
+    private function validateSchedule(Request $request, ?Schedule $ignoredSchedule = null): array
     {
         $validator = Validator::make($request->all(), [
             'schedule_name' => 'required|string|max:255',
@@ -129,7 +129,7 @@ class ScheduleController extends Controller
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $validator->after(function ($validator) use ($request) {
+        $validator->after(function ($validator) use ($request, $ignoredSchedule) {
             if (! $request->filled(['start_date', 'start_time', 'end_time'])) {
                 return;
             }
@@ -161,6 +161,27 @@ class ScheduleController extends Controller
                 $validator->errors()->add(
                     'end_time',
                     'The session end time must be later than the start time.'
+                );
+
+                return;
+            }
+
+            $normalizedRoad = mb_strtolower(trim((string) $request->input('road_name')));
+            $overlapExists = Schedule::query()
+                ->whereDate('start_date', $request->string('start_date'))
+                ->where('start_time', '<', $request->string('end_time'))
+                ->where('end_time', '>', $request->string('start_time'))
+                ->where(function ($query) use ($request, $normalizedRoad) {
+                    $query->where('camera_id', $request->integer('camera_id'))
+                        ->orWhereRaw('LOWER(TRIM(road_name)) = ?', [$normalizedRoad]);
+                })
+                ->when($ignoredSchedule, fn ($query) => $query->where('id', '!=', $ignoredSchedule->id))
+                ->exists();
+
+            if ($overlapExists) {
+                $validator->errors()->add(
+                    'start_time',
+                    'This station or camera already has a session scheduled during the selected date and time. Delete or adjust the existing schedule first.'
                 );
             }
         });

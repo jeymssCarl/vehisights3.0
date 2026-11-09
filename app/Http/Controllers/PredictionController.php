@@ -46,7 +46,7 @@ class PredictionController extends Controller
         try {
             $forecast = $this->predictionService->forecast(
                 $validated['road_name'],
-                Carbon::parse($validated['prediction_date']),
+                Carbon::parse($validated['prediction_date'], 'Asia/Manila'),
                 (int) $validated['forecast_window'],
             );
         } catch (DomainException $exception) {
@@ -140,7 +140,7 @@ class PredictionController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Random Forest regressor and classifier trained successfully.',
+            'message' => 'RandomForestClassifier trained successfully.',
             'training' => $result,
             'model_status' => $this->predictionService->status(),
         ]);

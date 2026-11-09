@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\AutoSession;
 use App\Models\ScheduleLog;
-use App\Models\TrafficHistory;
 use App\Services\ActivityNotificationService;
+use App\Services\TrafficHistorySyncService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,7 +31,7 @@ class AutoRecordsController extends Controller
         ]);
     }
 
-    public function update(Request $request, AutoSession $autoSession)
+    public function update(Request $request, AutoSession $autoSession, TrafficHistorySyncService $historySync)
     {
         if ($autoSession->status !== 'ended') {
             throw ValidationException::withMessages([
@@ -49,6 +49,10 @@ class AutoRecordsController extends Controller
 
         $autoSession->update($validated);
 
+        if ($autoSession->detail) {
+            $historySync->syncAuto($autoSession->fresh(), $autoSession->detail->fresh());
+        }
+
         ActivityNotificationService::send('Automatic record updated', auth()->user()->name.' updated '.$autoSession->session_code.'.', '/auto-records', 'auto_session', 'updated', $autoSession->id);
 
         return response()->json([
@@ -57,7 +61,7 @@ class AutoRecordsController extends Controller
         ]);
     }
 
-    public function destroy(AutoSession $autoSession)
+    public function destroy(AutoSession $autoSession, TrafficHistorySyncService $historySync)
     {
         if ($autoSession->status === 'active') {
             throw ValidationException::withMessages([
@@ -68,8 +72,8 @@ class AutoRecordsController extends Controller
         $sessionCode = $autoSession->session_code;
         $sessionId = $autoSession->id;
 
-        DB::transaction(function () use ($autoSession) {
-            $this->deleteTrafficHistory($autoSession);
+        DB::transaction(function () use ($autoSession, $historySync) {
+            $historySync->deleteAuto($autoSession);
 
             if ($autoSession->status === 'scheduled') {
                 ScheduleLog::query()
@@ -98,16 +102,16 @@ class AutoRecordsController extends Controller
         ]);
     }
 
-    public function destroyAll()
+    public function destroyAll(TrafficHistorySyncService $historySync)
     {
         $deletedCount = AutoSession::query()->where('status', 'ended')->whereHas('detail')->count();
-        DB::transaction(function () {
+        DB::transaction(function () use ($historySync) {
             AutoSession::query()
                 ->where('status', 'ended')
                 ->whereHas('detail')
                 ->get()
-                ->each(function (AutoSession $session) {
-                    $this->deleteTrafficHistory($session);
+                ->each(function (AutoSession $session) use ($historySync) {
+                    $historySync->deleteAuto($session);
                     $session->delete();
                 });
         });
@@ -119,22 +123,6 @@ class AutoRecordsController extends Controller
             'message' => 'All automatic records deleted successfully',
             'refresh_dashboard' => true,
         ]);
-    }
-
-    private function deleteTrafficHistory(AutoSession $session): void
-    {
-        $start = Carbon::parse($session->start_time);
-
-        TrafficHistory::query()
-            ->when(
-                $session->camera_id,
-                fn ($query) => $query->where('camera_id', $session->camera_id),
-                fn ($query) => $query->where('road_name', $session->road_name ?: $session->location)
-            )
-            ->where('source', 'auto')
-            ->whereDate('hour_timestamp', $start->toDateString())
-            ->whereTime('hour_timestamp', $start->copy()->startOfHour()->format('H:i:s'))
-            ->delete();
     }
 
     private function recordsQuery()
@@ -283,21 +271,7 @@ class AutoRecordsController extends Controller
                         $session->camera->update(['last_detection_at' => $scheduledEnd]);
                     }
 
-                    TrafficHistory::updateOrCreate(
-                        [
-                            'camera_id' => $session->camera_id,
-                            'hour_timestamp' => Carbon::parse($session->start_time)->startOfHour(),
-                            'source' => 'auto',
-                        ],
-                        [
-                            'road_name' => $session->road_name ?: $session->location,
-                            'direction' => $session->direction,
-                            'total_pcu' => $totalPcu,
-                            'vc_ratio' => $vcRatio,
-                            'los' => $los,
-                            'counts' => $counts,
-                        ]
-                    );
+                    app(TrafficHistorySyncService::class)->syncAuto($session, $detail);
                 });
             });
     }

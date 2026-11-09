@@ -129,6 +129,7 @@ Route::middleware(['auth'])->group(function () {
     // EDIT & DELETE routes for sessions (manual records)
     // IMPORTANT: delete-all route must come BEFORE {session} route to avoid conflict
     Route::delete('/sessions/delete-all', [SessionController::class, 'destroyAll'])->name('sessions.delete-all');
+    Route::delete('/sessions/delete-selected', [SessionController::class, 'destroySelected'])->name('sessions.delete-selected');
     Route::put('/sessions/{session}', [SessionController::class, 'update'])->name('sessions.update');
     Route::delete('/sessions/{session}', [SessionController::class, 'destroy'])->name('sessions.destroy');
 

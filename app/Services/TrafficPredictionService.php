@@ -15,6 +15,8 @@ use RuntimeException;
 
 class TrafficPredictionService
 {
+    private const ARTIFACT_SCHEMA = 'rfc-los-v2';
+
     public function status(): array
     {
         $metadata = $this->readMetadata();
@@ -22,13 +24,17 @@ class TrafficPredictionService
         $minimumRows = config('predictions.minimum_training_rows');
 
         return [
-            'ready' => File::exists($this->modelPath()) && $metadata !== null,
+            'ready' => File::exists($this->modelPath())
+                && ($metadata['algorithm'] ?? null) === 'RandomForestClassifier'
+                && ($metadata['artifact_schema'] ?? null) === self::ARTIFACT_SCHEMA,
             'available_rows' => $availableRows,
             'minimum_rows' => $minimumRows,
             'recommended_rows' => config('predictions.recommended_training_rows'),
             'trained_at' => $metadata['trained_at'] ?? null,
             'training_rows' => $metadata['training_rows'] ?? 0,
             'model_version' => $metadata['model_version'] ?? null,
+            'algorithm' => $metadata['algorithm'] ?? null,
+            'los_classes' => $metadata['los_classes'] ?? [],
             'metrics' => $metadata['metrics'] ?? null,
         ];
     }
@@ -53,6 +59,15 @@ class TrafficPredictionService
             throw new DomainException(
                 "At least {$minimumRows} traffic-history rows are required for training; {$rows->count()} are available."
             );
+        }
+
+        $losClasses = $rows
+            ->map(fn (TrafficHistory $row) => strtoupper((string) $row->los))
+            ->filter(fn (string $los) => in_array($los, ['A', 'B', 'C', 'D', 'E', 'F'], true))
+            ->unique();
+
+        if ($losClasses->count() < 2) {
+            throw new DomainException('RandomForestClassifier training requires historical data from at least two LOS classes.');
         }
 
         $this->ensureArtifactDirectory();
@@ -86,8 +101,8 @@ class TrafficPredictionService
 
     public function forecast(string $roadName, Carbon $date, int $hours): array
     {
-        if (! File::exists($this->modelPath())) {
-            throw new DomainException('The prediction model has not been trained yet.');
+        if (! $this->status()['ready']) {
+            throw new DomainException('Train the RFC LOS model first. The previous hybrid model cannot be used for this forecast.');
         }
 
         $this->ensureArtifactDirectory();
@@ -97,9 +112,10 @@ class TrafficPredictionService
             ->latest('hour_timestamp')
             ->first();
 
-        $startAt = $date->isToday()
-            ? now()->startOfHour()->addHour()
-            : $date->copy()->startOfDay();
+        $manilaDate = $date->copy()->setTimezone('Asia/Manila');
+        $startAt = $manilaDate->isToday()
+            ? now('Asia/Manila')->startOfHour()->addHour()
+            : $manilaDate->startOfDay();
 
         File::put($requestPath, json_encode([
             'road_name' => $roadName,
@@ -190,11 +206,11 @@ class TrafficPredictionService
 
     private function modelPath(): string
     {
-        return $this->artifactDirectory().DIRECTORY_SEPARATOR.'random-forest.joblib';
+        return $this->artifactDirectory().DIRECTORY_SEPARATOR.'random-forest-classifier.joblib';
     }
 
     private function metadataPath(): string
     {
-        return $this->artifactDirectory().DIRECTORY_SEPARATOR.'random-forest-metadata.json';
+        return $this->artifactDirectory().DIRECTORY_SEPARATOR.'random-forest-classifier-metadata.json';
     }
 }

@@ -11,6 +11,7 @@ const startButton = document.getElementById('startSessionBtn');
 const noticeModal = document.getElementById('scheduleNoticeModal');
 const confirmModal = document.getElementById('scheduleConfirmModal');
 let timePickers = null;
+localStorage.removeItem('vehisights-scheduling-daily-draft');
 
 const startButtonContent = `
   <svg viewBox="0 0 24 24" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2">
@@ -220,6 +221,10 @@ document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (noticeModal.classList.contains('active')) closeNotice();
   if (confirmModal.classList.contains('active')) confirmModal.classList.remove('active');
+});
+
+window.addEventListener('pageshow', event => {
+  if (event.persisted) resetForm();
 });
 
 form.addEventListener('submit', async event => {

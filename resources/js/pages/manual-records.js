@@ -18,6 +18,8 @@ let customStartDate = isValidDate(urlState.get('start_date')) ? urlState.get('st
 let customEndDate = isValidDate(urlState.get('end_date')) ? urlState.get('end_date') : pageData.today;
 if (customStartDate > customEndDate) customEndDate = customStartDate;
 let lastEditTrigger = null;
+const selectedSessionIds = new Set();
+let visibleSessionIds = [];
 
 // Vehicle types with PCU factors
 const vehicleTypes = [
@@ -74,6 +76,21 @@ function updateDeleteAllButton(hasVisibleRecords) {
   deleteAllBtn.title = hasVisibleRecords ? 'Delete all records' : 'No records to delete';
 }
 
+function updateSelectionControls() {
+  const selectedCount = selectedSessionIds.size;
+  const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+  const countBadge = document.getElementById('selectedCount');
+  const selectAll = document.getElementById('selectAllVisible');
+  const selectedVisibleCount = visibleSessionIds.filter(id => selectedSessionIds.has(id)).length;
+
+  deleteSelectedBtn.disabled = selectedCount === 0;
+  deleteSelectedBtn.title = selectedCount ? `Delete ${selectedCount} selected record(s)` : 'Select records to delete';
+  countBadge.textContent = selectedCount;
+  selectAll.disabled = visibleSessionIds.length === 0;
+  selectAll.checked = visibleSessionIds.length > 0 && selectedVisibleCount === visibleSessionIds.length;
+  selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleSessionIds.length;
+}
+
 function renderTable() {
   const searchTerm = document.getElementById('searchInput').value.toLowerCase();
   let filtered = sessionsData.filter(s => {
@@ -83,17 +100,22 @@ function renderTable() {
   });
   
   const tbody = document.getElementById('sessionsTableBody');
+  visibleSessionIds = filtered.map(session => Number(session.id));
   updateDeleteAllButton(filtered.length > 0);
+  updateSelectionControls();
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-message">No sessions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-message">No sessions found</td></tr>';
     return;
   }
   
   tbody.innerHTML = filtered.map(s => {
     const dateTime = formatDateTime(s.start_time);
     return `
-      <tr onclick="rowClickHandler(event)" data-session-code="${escapeHtml(s.session_code)}">
+      <tr data-session-id="${s.id}" class="${selectedSessionIds.has(Number(s.id)) ? 'is-selected' : ''}">
+        <td class="selection-column" onclick="event.stopPropagation()">
+          <input type="checkbox" class="record-checkbox row-select-checkbox" data-id="${s.id}" aria-label="Select session ${escapeHtml(s.session_code)}" ${selectedSessionIds.has(Number(s.id)) ? 'checked' : ''}>
+        </td>
         <td style="font-family:'DM Mono',monospace;">${escapeHtml(s.session_code)}</td>
         <td>${escapeHtml(s.road_name)}</td>
         <td>${escapeHtml(s.direction)}</td>
@@ -123,10 +145,10 @@ function attachRowClickEvents() {
 }
 
 function rowClickHandler(e) {
-  if (e.target.closest('.action-icon')) return;
+  if (e.target.closest('.action-icon, .record-checkbox')) return;
   const row = e.currentTarget;
-  const sessionCode = row.cells[0].innerText;
-  const session = sessionsData.find(s => s.session_code === sessionCode);
+  const sessionId = Number(row.dataset.sessionId);
+  const session = sessionsData.find(s => Number(s.id) === sessionId);
   if (session) showSessionDetails(session);
 }
 
@@ -138,6 +160,15 @@ function attachActionEvents() {
   document.querySelectorAll('.action-icon.delete').forEach(btn => {
     btn.removeEventListener('click', handleDelete);
     btn.addEventListener('click', handleDelete);
+  });
+  document.querySelectorAll('.row-select-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', event => {
+      const id = Number(event.currentTarget.dataset.id);
+      if (event.currentTarget.checked) selectedSessionIds.add(id);
+      else selectedSessionIds.delete(id);
+      event.currentTarget.closest('tr')?.classList.toggle('is-selected', event.currentTarget.checked);
+      updateSelectionControls();
+    });
   });
 }
 
@@ -341,6 +372,42 @@ async function handleDeleteAll() {
   );
 }
 
+async function handleDeleteSelected() {
+  const ids = Array.from(selectedSessionIds);
+  if (!ids.length) return;
+
+  showConfirmModal(
+    'Delete Selected Records?',
+    `Delete <strong>${ids.length}</strong> selected manual record${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
+    async () => {
+      setConfirmLoading(false, true, `Deleting ${ids.length}…`);
+      try {
+        const response = await fetch('/sessions/delete-selected', {
+          method: 'DELETE',
+          headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ session_ids: ids })
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+          window.location.reload();
+        } else {
+          setConfirmLoading(false, false);
+          window.VehiSightsUI.showNotice({ title: 'Bulk delete failed', message: result.message || 'The selected records could not be deleted.' });
+        }
+      } catch (err) {
+        console.error(err);
+        setConfirmLoading(false, false);
+        window.VehiSightsUI.showNotice({ title: 'Bulk delete failed', message: 'The selected records could not be deleted. Check your connection and try again.' });
+      }
+      if (!pendingActionRunning) closeConfirmModal();
+    }
+  );
+}
+
 function showSessionDetails(session) {
   const modal = document.getElementById('detailsModal');
   const modalBody = document.getElementById('detailsModalBody');
@@ -484,6 +551,14 @@ searchInput.addEventListener('input', () => {
   renderTable();
 });
 document.getElementById('deleteAllBtn').addEventListener('click', handleDeleteAll);
+document.getElementById('deleteSelectedBtn').addEventListener('click', handleDeleteSelected);
+document.getElementById('selectAllVisible').addEventListener('change', event => {
+  visibleSessionIds.forEach(id => {
+    if (event.currentTarget.checked) selectedSessionIds.add(id);
+    else selectedSessionIds.delete(id);
+  });
+  renderTable();
+});
 renderTable();
 
 // Edit modal
@@ -552,6 +627,7 @@ document.getElementById('editSessionForm').addEventListener('submit', async (e) 
     'Update Session?',
     `Are you sure you want to update session <strong>${escapeHtml(session?.session_code)}</strong>? This will update dashboard and reports.`,
     async () => {
+      setConfirmLoading(false, true, 'Updating…');
       try {
         const response = await fetch(`/sessions/${id}/full-update`, {
           method: 'PUT',
@@ -563,16 +639,26 @@ document.getElementById('editSessionForm').addEventListener('submit', async (e) 
           body: JSON.stringify(data)
         });
         const result = await response.json();
-        if (result.success) {
+        if (response.ok && result.success) {
           window.location.reload();
         } else {
-          alert('❌ Update failed: ' + (result.message || 'Unknown error'));
+          setConfirmLoading(false, false);
+          const firstError = Object.values(result.errors || {}).flat().find(Boolean);
+          window.VehiSightsUI.showNotice({
+            title: 'Update not saved',
+            message: firstError || result.message || 'The manual session could not be updated.',
+            tone: 'warning'
+          });
         }
       } catch (err) {
         console.error(err);
-        alert('❌ Error updating session');
+        setConfirmLoading(false, false);
+        window.VehiSightsUI.showNotice({
+          title: 'Update failed',
+          message: 'The manual session could not be updated. Check your connection and try again.'
+        });
       }
-      closeConfirmModal();
+      if (!pendingActionRunning) closeConfirmModal();
     }
   );
 });

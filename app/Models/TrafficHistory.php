@@ -12,6 +12,8 @@ class TrafficHistory extends Model
     protected $table = 'traffic_history';
 
     protected $fillable = [
+        'session_id',
+        'auto_session_id',
         'camera_id',
         'road_name',
         'direction',
@@ -33,5 +35,15 @@ class TrafficHistory extends Model
     public function camera()
     {
         return $this->belongsTo(Camera::class);
+    }
+
+    public function session()
+    {
+        return $this->belongsTo(Session::class);
+    }
+
+    public function autoSession()
+    {
+        return $this->belongsTo(AutoSession::class);
     }
 }

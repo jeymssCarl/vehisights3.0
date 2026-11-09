@@ -47,4 +47,9 @@ class Session extends Model
     {
         return $this->hasOne(ManualCount::class);
     }
+
+    public function trafficHistory()
+    {
+        return $this->hasOne(TrafficHistory::class);
+    }
 }

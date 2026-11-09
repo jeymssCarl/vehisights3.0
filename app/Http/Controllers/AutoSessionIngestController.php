@@ -7,7 +7,7 @@ use App\Models\AutoSessionDetail;
 use App\Models\Camera;
 use App\Models\Schedule;
 use App\Models\ScheduleLog;
-use App\Models\TrafficHistory;
+use App\Services\TrafficHistorySyncService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -238,7 +238,7 @@ class AutoSessionIngestController extends Controller
         ]);
     }
 
-    public function stop(Request $request, AutoSession $autoSession)
+    public function stop(Request $request, AutoSession $autoSession, TrafficHistorySyncService $historySync)
     {
         $this->authorizeSessionAccess($request, $autoSession);
 
@@ -255,10 +255,10 @@ class AutoSessionIngestController extends Controller
             'counts' => array_values($session->detail?->counts ?? array_fill(0, 8, 0)),
         ]);
 
-        return $this->complete($request, $session);
+        return $this->complete($request, $session, $historySync);
     }
 
-    public function complete(Request $request, AutoSession $autoSession)
+    public function complete(Request $request, AutoSession $autoSession, TrafficHistorySyncService $historySync)
     {
         $this->authorizeSessionAccess($request, $autoSession);
 
@@ -268,7 +268,7 @@ class AutoSessionIngestController extends Controller
             'counts.*' => 'required|integer|min:0',
         ]);
 
-        $result = DB::transaction(function () use ($autoSession, $validated) {
+        $result = DB::transaction(function () use ($autoSession, $validated, $historySync) {
             $session = AutoSession::query()->lockForUpdate()->findOrFail($autoSession->id);
 
             if ($session->status === 'ended') {
@@ -336,21 +336,7 @@ class AutoSessionIngestController extends Controller
                 $session->camera->update(['last_detection_at' => $endTime]);
             }
 
-            TrafficHistory::updateOrCreate(
-                [
-                    'camera_id' => $session->camera_id,
-                    'hour_timestamp' => Carbon::parse($session->start_time)->startOfHour(),
-                    'source' => 'auto',
-                ],
-                [
-                    'road_name' => $session->road_name ?: $session->location,
-                    'direction' => $session->direction,
-                    'total_pcu' => $totalPcu,
-                    'vc_ratio' => $vcRatio,
-                    'los' => $los,
-                    'counts' => $counts,
-                ]
-            );
+            $historySync->syncAuto($session, $detail);
 
             return ['session' => $session->fresh(), 'detail' => $detail];
         });

@@ -70,16 +70,23 @@
             <button type="button" id="todayFilterBtn" class="btn-today-filter">Today</button>
           </div>
         </div>
-        <button id="deleteAllBtn" class="btn-delete-all" type="button" disabled title="No records to delete">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-          Delete All
-        </button>
+        <div class="record-delete-actions">
+          <button id="deleteSelectedBtn" class="btn-delete-selected" type="button" disabled title="Select records to delete">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            <span>Delete Selected</span><span id="selectedCount" class="selected-count">0</span>
+          </button>
+          <button id="deleteAllBtn" class="btn-delete-all" type="button" disabled title="No records to delete">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Delete All
+          </button>
+        </div>
       </div>
 
       <div class="table-wrapper">
         <table class="sessions-table">
           <thead>
             <tr>
+              <th class="selection-column"><input type="checkbox" id="selectAllVisible" class="record-checkbox" aria-label="Select all visible records"></th>
               <th>Session ID</th>
               <th>Road Name</th>
               <th>Direction</th>

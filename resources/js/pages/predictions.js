@@ -159,7 +159,7 @@ function buildForecastTable(predictions = []) {
     return;
   }
   tbody.innerHTML = predictions.map(row => {
-    const predictedLos = row.rfc_predicted_los || row.predicted_los || '—';
+    const predictedLos = row.predicted_los || '—';
     const status = trafficStatus(predictedLos);
     return `
     <tr class="pred-row">
@@ -168,7 +168,7 @@ function buildForecastTable(predictions = []) {
       <td class="mono-value">${Number(row.predicted_vc_ratio).toFixed(2)}</td>
       <td><span class="los-badge ${losClass(predictedLos)}">${escapeHtml(predictedLos)}</span></td>
       <td>${escapeHtml(status)}</td>
-      <td class="forecast-type">${Number(row.rfc_confidence || 0).toFixed(0)}%</td>
+      <td class="forecast-type">${Number(row.confidence_score || 0).toFixed(0)}%</td>
     </tr>
   `;
   }).join('');
@@ -192,18 +192,18 @@ function updateSummary(payload) {
   const next = predictions[0];
   const severity = { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6 };
   const highestClass = predictions.reduce((best, row) => {
-    const rowLos = String(row.rfc_predicted_los || row.predicted_los || '').toUpperCase();
-    const bestLos = String(best?.rfc_predicted_los || best?.predicted_los || '').toUpperCase();
+    const rowLos = String(row.predicted_los || '').toUpperCase();
+    const bestLos = String(best?.predicted_los || '').toUpperCase();
     return !best || (severity[rowLos] || 0) > (severity[bestLos] || 0) ? row : best;
   }, null);
   const classifierAccuracy = Number(payload.forecast?.metrics?.classifier_accuracy || 0) * 100;
-  const nextLos = next?.rfc_predicted_los || next?.predicted_los;
-  const highestLos = highestClass?.rfc_predicted_los || highestClass?.predicted_los;
+  const nextLos = next?.predicted_los;
+  const highestLos = highestClass?.predicted_los;
 
   document.getElementById('kpiCurrent').textContent = current ? formatNumber(current.total_pcu) : '—';
   document.getElementById('kpiCurrentSub').textContent = current ? `Recorded ${formatHour(current.timestamp)}` : 'No historical record';
   document.getElementById('kpiNext').textContent = nextLos ? `LOS ${nextLos}` : '—';
-  document.getElementById('kpiNextSub').textContent = next ? `${trafficStatus(nextLos)} · ${Number(next.rfc_confidence || 0).toFixed(0)}% confidence` : 'Awaiting RFC result';
+  document.getElementById('kpiNextSub').textContent = next ? `${trafficStatus(nextLos)} · ${Number(next.confidence_score || 0).toFixed(0)}% confidence` : 'Awaiting RFC result';
   document.getElementById('kpiPeak').textContent = highestLos ? `LOS ${highestLos}` : '—';
   document.getElementById('kpiPeakSub').textContent = highestClass ? `${trafficStatus(highestLos)} at ${formatHour(highestClass.timestamp)}` : 'Awaiting RFC result';
   document.getElementById('kpiConf').textContent = `${classifierAccuracy.toFixed(0)}%`;

@@ -1,29 +1,7 @@
-# VehiSights traffic prediction
+# VehiSights RFC prediction pipeline
 
-The application uses a hybrid Random Forest design. A `RandomForestRegressor` forecasts hourly PCU, while a `RandomForestClassifier` independently classifies LOS. V/C ratio and the final standards-consistent LOS/status are calculated from the predicted PCU and stored road capacity; the RFC output is displayed as an independent classification check.
+VehiSights uses a `RandomForestClassifier` to predict the hourly Level of Service (LOS) class from `A` to `F`. Training features include the road, direction, record source, Manila-local hour, weekday, month, day of year, weekend flag, and cyclical hour/weekday values.
 
-## Local setup
+The classifier does not perform numeric regression. For each predicted LOS, the application estimates V/C from matching historical medians in this order: road + hour + LOS, road + LOS, global LOS, then the standard LOS midpoint. Estimated PCU is calculated from that V/C estimate and the road capacity. The confidence stored with each forecast is the classifier probability for that individual result.
 
-From the project root on Windows:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r ml\requirements.txt
-```
-
-Laravel automatically uses `.venv/Scripts/python.exe`. Override it with `PREDICTION_PYTHON_BINARY` only when Python is installed elsewhere.
-
-## Data requirements
-
-- Training source: completed manual and automatic results written to `traffic_history`.
-- Hard minimum: 48 hourly records, configurable with `PREDICTION_MINIMUM_TRAINING_ROWS`.
-- Recommended starting point: at least 168 hourly records and preferably several weeks covering weekdays, weekends, and different traffic periods.
-- More observations per road generally produce more credible road-specific forecasts.
-
-Open **Predictions** and select **Train Model** after enough records are available. Retrain after a meaningful amount of new traffic data has been collected.
-
-## Model design
-
-Both estimators use hour, weekday, month, seasonal cyclical features, road, direction, and record source. Validation uses time-ordered splits and records both regression error and RFC classification accuracy/F1. The trained model and its metadata are private runtime artifacts in `storage/app/private/predictions` and are excluded from Git.
-
-Google Colab is optional. It can be used for experimentation, but the production artifact should be trained by this Laravel application so its scikit-learn version and feature pipeline remain consistent. Never load an untrusted `.joblib` model.
+The current artifact schema is `rfc-los-v2`. Model and metadata filenames are intentionally different from the former hybrid artifacts, so an old regressor/classifier model cannot be reused accidentally. Retraining is required after upgrading.

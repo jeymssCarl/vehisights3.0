@@ -1,30 +1,27 @@
 import argparse
 import json
 import math
-from datetime import datetime, timezone
+import statistics
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 import joblib
 import numpy as np
 import sklearn
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 
+MANILA_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Manila")
+ARTIFACT_SCHEMA = "rfc-los-v2"
 NUMERIC_FEATURES = [
-    "hour",
-    "day_of_week",
-    "month",
-    "day_of_year",
-    "is_weekend",
-    "hour_sin",
-    "hour_cos",
-    "weekday_sin",
-    "weekday_cos",
+    "hour", "day_of_week", "month", "day_of_year", "is_weekend",
+    "hour_sin", "hour_cos", "weekday_sin", "weekday_cos",
 ]
 CATEGORICAL_FEATURES = ["road_name", "direction", "source"]
 FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
@@ -38,8 +35,15 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def local_timestamp(value):
+    timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=MANILA_TIMEZONE)
+    return timestamp.astimezone(MANILA_TIMEZONE)
+
+
 def feature_row(record):
-    timestamp = datetime.fromisoformat(record["hour_timestamp"].replace("Z", "+00:00"))
+    timestamp = local_timestamp(record["hour_timestamp"])
     hour = timestamp.hour
     weekday = timestamp.weekday()
     return {
@@ -64,9 +68,8 @@ def rows_to_matrix(rows):
 
 def los_target(record):
     stored_los = str(record.get("los") or "").upper()
-    if stored_los in "ABCDEF" and len(stored_los) == 1:
+    if len(stored_los) == 1 and stored_los in "ABCDEF":
         return stored_los
-
     ratio = float(record.get("vc_ratio") or 0)
     if ratio < 0.20:
         return "A"
@@ -81,7 +84,7 @@ def los_target(record):
     return "F"
 
 
-def build_preprocessor():
+def build_classifier_pipeline():
     preprocessor = ColumnTransformer(
         transformers=[
             ("numeric", "passthrough", list(range(len(NUMERIC_FEATURES)))),
@@ -92,108 +95,111 @@ def build_preprocessor():
             ),
         ]
     )
-    return preprocessor
-
-
-def build_regression_pipeline():
-    forest = RandomForestRegressor(
-        n_estimators=300,
-        min_samples_leaf=2,
-        max_features=0.8,
-        random_state=42,
-        n_jobs=-1,
-    )
-    return Pipeline([("features", build_preprocessor()), ("model", forest)])
-
-
-def build_classifier_pipeline():
     classifier = RandomForestClassifier(
-        n_estimators=300,
+        n_estimators=400,
         min_samples_leaf=2,
         max_features="sqrt",
         class_weight="balanced_subsample",
         random_state=42,
         n_jobs=-1,
     )
-    return Pipeline([("features", build_preprocessor()), ("model", classifier)])
+    return Pipeline([("features", preprocessor), ("model", classifier)])
 
 
-def validation_metrics(regressor, classifier, x, pcu_targets, los_targets):
-    split_count = min(5, max(2, len(pcu_targets) // 24))
+def validation_metrics(classifier, x, targets):
+    split_count = min(5, max(2, len(targets) // 24))
     splitter = TimeSeriesSplit(n_splits=split_count)
-    pcu_predictions = []
-    pcu_actual = []
-    los_predictions = []
-    los_actual = []
+    predictions = []
+    actual = []
+    evaluated_folds = 0
     for train_index, test_index in splitter.split(x):
-        regression_candidate = clone(regressor)
-        classification_candidate = clone(classifier)
+        candidate = clone(classifier)
         train_x = [x[index] for index in train_index]
         test_x = [x[index] for index in test_index]
-        regression_candidate.fit(train_x, pcu_targets[train_index])
-        classification_candidate.fit(train_x, los_targets[train_index])
-        pcu_predictions.extend(regression_candidate.predict(test_x))
-        pcu_actual.extend(pcu_targets[test_index])
-        los_predictions.extend(classification_candidate.predict(test_x))
-        los_actual.extend(los_targets[test_index])
-
-    mae = float(mean_absolute_error(pcu_actual, pcu_predictions))
-    rmse = float(math.sqrt(mean_squared_error(pcu_actual, pcu_predictions)))
-    r2 = float(r2_score(pcu_actual, pcu_predictions)) if len(pcu_actual) > 1 else 0.0
-    mean_pcu = max(float(np.mean(pcu_actual)), 1.0)
-    regression_confidence = max(0.0, min(100.0, 100.0 * (1.0 - mae / mean_pcu)))
-    classifier_accuracy = float(accuracy_score(los_actual, los_predictions))
-    classifier_f1 = float(f1_score(los_actual, los_predictions, average="macro", zero_division=0))
-    combined_confidence = (regression_confidence + classifier_accuracy * 100.0) / 2.0
+        candidate.fit(train_x, targets[train_index])
+        predictions.extend(candidate.predict(test_x))
+        actual.extend(targets[test_index])
+        evaluated_folds += 1
     return {
-        "mae": round(mae, 2),
-        "rmse": round(rmse, 2),
-        "r2": round(r2, 4),
-        "regression_confidence": round(regression_confidence, 2),
-        "classifier_accuracy": round(classifier_accuracy, 4),
-        "classifier_macro_f1": round(classifier_f1, 4),
-        "validation_confidence": round(combined_confidence, 2),
+        "classifier_accuracy": round(float(accuracy_score(actual, predictions)), 4),
+        "classifier_macro_f1": round(float(f1_score(actual, predictions, average="macro", zero_division=0)), 4),
+        "validation_folds": evaluated_folds,
     }
+
+
+def statistic_entry(scope, key, values):
+    return {
+        "scope": scope,
+        **key,
+        "median_vc_ratio": round(float(statistics.median(value["vc_ratio"] for value in values)), 6),
+        "median_total_pcu": round(float(statistics.median(value["total_pcu"] for value in values)), 2),
+        "sample_count": len(values),
+    }
+
+
+def build_class_statistics(records):
+    road_hour = defaultdict(list)
+    road = defaultdict(list)
+    global_groups = defaultdict(list)
+    for record in records:
+        los = los_target(record)
+        road_name = record.get("road_name") or "unknown"
+        hour = local_timestamp(record["hour_timestamp"]).hour
+        value = {
+            "vc_ratio": max(0.0, float(record.get("vc_ratio") or 0)),
+            "total_pcu": max(0.0, float(record.get("total_pcu") or 0)),
+        }
+        road_hour[(road_name, hour, los)].append(value)
+        road[(road_name, los)].append(value)
+        global_groups[los].append(value)
+
+    entries = []
+    for (road_name, hour, los), values in sorted(road_hour.items()):
+        entries.append(statistic_entry("road_hour_los", {"road_name": road_name, "hour": hour, "los": los}, values))
+    for (road_name, los), values in sorted(road.items()):
+        entries.append(statistic_entry("road_los", {"road_name": road_name, "los": los}, values))
+    for los, values in sorted(global_groups.items()):
+        entries.append(statistic_entry("global_los", {"los": los}, values))
+    return entries
 
 
 def main():
     args = parse_arguments()
     with open(args.input, "r", encoding="utf-8") as handle:
         records = json.load(handle)["records"]
-
     records.sort(key=lambda row: row["hour_timestamp"])
-    feature_rows = [feature_row(record) for record in records]
-    x = rows_to_matrix(feature_rows)
-    pcu_targets = np.asarray([float(record["total_pcu"]) for record in records], dtype=float)
-    los_targets = np.asarray([los_target(record) for record in records])
-    regressor = build_regression_pipeline()
-    classifier = build_classifier_pipeline()
-    metrics = validation_metrics(regressor, classifier, x, pcu_targets, los_targets)
-    regressor.fit(x, pcu_targets)
-    classifier.fit(x, los_targets)
+    x = rows_to_matrix([feature_row(record) for record in records])
+    targets = np.asarray([los_target(record) for record in records])
+    classes = sorted(set(targets.tolist()))
+    if len(classes) < 2:
+        raise ValueError("RandomForestClassifier training requires at least two LOS classes.")
 
+    classifier = build_classifier_pipeline()
+    metrics = validation_metrics(classifier, x, targets)
+    classifier.fit(x, targets)
     trained_at = datetime.now(timezone.utc).isoformat()
-    model_version = datetime.now(timezone.utc).strftime("rf-%Y%m%d%H%M%S")
+    model_version = datetime.now(timezone.utc).strftime("rfc-los-%Y%m%d%H%M%S")
     artifact = {
-        "regressor": regressor,
+        "artifact_schema": ARTIFACT_SCHEMA,
         "classifier": classifier,
         "features": FEATURES,
+        "class_statistics": build_class_statistics(records),
         "model_version": model_version,
     }
     metadata = {
-        "algorithm": "Hybrid Random Forest",
-        "pcu_estimator": "RandomForestRegressor",
-        "los_estimator": "RandomForestClassifier",
+        "algorithm": "RandomForestClassifier",
+        "target": "LOS",
+        "artifact_schema": ARTIFACT_SCHEMA,
         "model_version": model_version,
         "trained_at": trained_at,
         "training_rows": len(records),
         "date_from": records[0]["hour_timestamp"],
         "date_to": records[-1]["hour_timestamp"],
         "roads": sorted({record.get("road_name") for record in records if record.get("road_name")}),
+        "los_classes": classes,
         "metrics": metrics,
         "scikit_learn_version": sklearn.__version__,
     }
-
     joblib.dump(artifact, args.model)
     with open(args.metadata, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
