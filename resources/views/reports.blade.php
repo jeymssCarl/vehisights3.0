@@ -56,11 +56,27 @@
     <div class="content">
       <!-- FILTERS -->
       <div class="filters-bar">
-        <div class="filter-group">
+        <div class="filter-group period-type-group">
+          <label for="period_type">Report Period</label>
+          <select id="period_type">
+            <option value="date" {{ $periodType === 'date' ? 'selected' : '' }}>Specific Date</option>
+            <option value="month" {{ $periodType === 'month' ? 'selected' : '' }}>Entire Month</option>
+            <option value="range" {{ $periodType === 'range' ? 'selected' : '' }}>Custom Date Range</option>
+          </select>
+        </div>
+        <div class="filter-group" id="singleDateGroup" {{ $periodType !== 'date' ? 'hidden' : '' }}>
+          <label for="single_date">Survey Date</label>
+          <input type="date" id="single_date" value="{{ $startDate }}">
+        </div>
+        <div class="filter-group" id="monthGroup" {{ $periodType !== 'month' ? 'hidden' : '' }}>
+          <label for="report_month">Survey Month</label>
+          <input type="month" id="report_month" value="{{ substr($startDate, 0, 7) }}">
+        </div>
+        <div class="filter-group" id="startDateGroup" {{ $periodType !== 'range' ? 'hidden' : '' }}>
           <label>Date From</label>
           <input type="date" id="start_date" value="{{ $startDate }}">
         </div>
-        <div class="filter-group">
+        <div class="filter-group" id="endDateGroup" {{ $periodType !== 'range' ? 'hidden' : '' }}>
           <label>Date To</label>
           <input type="date" id="end_date" value="{{ $endDate }}">
         </div>
@@ -81,6 +97,7 @@
         <button class="btn-secondary" id="generateFormBtn">Generate Survey Form</button>
         <button class="btn-secondary" id="exportCsvBtn">Export CSV</button>
         <button class="btn-secondary" id="exportPdfBtn">Export PDF</button>
+        <div class="filter-help">Exports contain only records from the selected period and station/road.</div>
       </div>
 
       <!-- SUMMARY CARDS -->
@@ -132,6 +149,7 @@
                 <th>Total PCU</th>
                 <th>V/C Ratio</th>
                 <th>LOS</th>
+                <th>Day Classification</th>
                 <th>Source</th>
               </tr>
             </thead>
@@ -151,11 +169,12 @@
                 <td style="font-family:'DM Mono',monospace; font-weight:700;">{{ number_format($row['total_pcu'], 2) }}</td>
                 <td style="font-family:'DM Mono',monospace;">{{ number_format($row['vc_ratio'], 2) }}</td>
                 <td><span class="los-badge los-{{ strtolower($row['los']) }}">{{ $row['los'] }}</span></td>
+                <td>{{ $row['day_classification'] }}</td>
                 <td><span class="source-badge {{ $row['source'] }}">{{ ucfirst($row['source']) }}</span></td>
               </tr>
               @empty
               <tr>
-                <td colspan="14" class="empty-state">
+                <td colspan="15" class="empty-state">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                         <path d="M16 2v4h4"/>
@@ -189,7 +208,7 @@
   </div>
 </div>
 
-<script type="application/json" id="page-data">@json(['chartLabels' => $chartLabels, 'chartData' => $chartData])</script>
+<script type="application/json" id="page-data">@json($reportsPageData)</script>
 @vite('resources/js/pages/reports.js')
 </body>
 </html>

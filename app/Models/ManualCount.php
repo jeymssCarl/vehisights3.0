@@ -18,6 +18,7 @@ class ManualCount extends Model
         'city',
         'direction_from',
         'direction_to',
+        'day_classification',
         'count_date',
         'hour_start',
         'hour_end',

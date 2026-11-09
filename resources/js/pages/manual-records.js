@@ -155,6 +155,7 @@ function handleEdit(e) {
   document.getElementById('edit_direction').value = session.direction || '';
   document.getElementById('edit_lanes').value = session.lanes || 2;
   document.getElementById('edit_has_median').value = session.has_median ? '1' : '0';
+  document.getElementById('edit_day_classification').value = session.day_classification || '';
   if (session.start_time) {
     const start = new Date(session.start_time);
     document.getElementById('edit_start_time').value = start.toISOString().slice(0, 16);
@@ -241,6 +242,17 @@ document.getElementById('edit_lanes').addEventListener('input', updateEditSummar
 document.getElementById('edit_has_median').addEventListener('change', updateEditSummary);
 
 let pendingAction = null;
+let pendingActionRunning = false;
+function setConfirmLoading(isDeleteAll, loading, text = 'Deleting…') {
+  const button = document.getElementById(isDeleteAll ? 'confirmDeleteAllOkBtn' : 'confirmOkBtn');
+  const cancel = document.getElementById(isDeleteAll ? 'confirmDeleteAllCancelBtn' : 'confirmCancelBtn');
+  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent.trim();
+  button.disabled = loading;
+  cancel.disabled = loading;
+  button.classList.toggle('ui-action-loading', loading);
+  button.textContent = loading ? text : button.dataset.defaultLabel;
+  pendingActionRunning = loading;
+}
 function showConfirmModal(title, message, onConfirm, isDeleteAll = false) {
   const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
   document.getElementById('confirmTitle').innerText = title;
@@ -249,6 +261,7 @@ function showConfirmModal(title, message, onConfirm, isDeleteAll = false) {
   document.getElementById(modalId).classList.add('active');
 }
 function closeConfirmModal(isDeleteAll = false) {
+  if (pendingActionRunning) return;
   const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
   document.getElementById(modalId).classList.remove('active');
   pendingAction = null;
@@ -263,6 +276,7 @@ async function handleDelete(e) {
     'Delete Session?',
     `Are you sure you want to delete session <strong>${escapeHtml(session.session_code)}</strong>?<br>This action cannot be undone.`,
     async () => {
+      setConfirmLoading(false, true);
       try {
         const response = await fetch(`/sessions/${id}`, {
           method: 'DELETE',
@@ -276,13 +290,15 @@ async function handleDelete(e) {
         if (result.success) {
           window.location.reload();
         } else {
-          alert('❌ Delete failed: ' + (result.message || 'Unknown error'));
+          setConfirmLoading(false, false);
+          window.VehiSightsUI.showNotice({ title: 'Delete failed', message: result.message || 'The manual session could not be deleted.' });
         }
       } catch (err) {
         console.error(err);
-        alert('❌ Error deleting session');
+        setConfirmLoading(false, false);
+        window.VehiSightsUI.showNotice({ title: 'Delete failed', message: 'The manual session could not be deleted. Check your connection and try again.' });
       }
-      closeConfirmModal();
+      if (!pendingActionRunning) closeConfirmModal();
     }
   );
 }
@@ -294,6 +310,8 @@ async function handleDeleteAll() {
     'Delete All Records?',
     'Are you sure you want to delete ALL manual records? This action cannot be undone.',
     async () => {
+      setConfirmLoading(true, true, 'Deleting all…');
+      document.getElementById('deleteAllBtn').disabled = true;
       try {
         const response = await fetch('/sessions/delete-all', {
           method: 'DELETE',
@@ -307,13 +325,17 @@ async function handleDeleteAll() {
         if (result.success) {
           window.location.reload();
         } else {
-          alert('❌ Delete all failed: ' + (result.message || 'Unknown error'));
+          setConfirmLoading(true, false);
+          document.getElementById('deleteAllBtn').disabled = false;
+          window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: result.message || 'The manual records could not be deleted.' });
         }
       } catch (err) {
         console.error(err);
-        alert('❌ Error deleting all sessions');
+        setConfirmLoading(true, false);
+        document.getElementById('deleteAllBtn').disabled = false;
+        window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: 'The manual records could not be deleted. Check your connection and try again.' });
       }
-      closeConfirmModal(true);
+      if (!pendingActionRunning) closeConfirmModal(true);
     },
     true
   );
@@ -356,6 +378,16 @@ function showSessionDetails(session) {
   };
   const vcColor = getVcColor(vcRatio);
   const losColor = getLosColor(los);
+  const dayClassification = session.day_classification === 'market_day'
+    ? 'Market Day'
+    : (session.day_classification === 'sunday' ? 'Sunday' : 'Not specified');
+
+  const contextHtml = `
+    <div class="details-context-row">
+      <span class="details-context-label">Day Classification</span>
+      <span class="details-context-value">${dayClassification}</span>
+    </div>
+  `;
 
   const statsHtml = `
     <div class="details-stats-grid">
@@ -401,7 +433,7 @@ function showSessionDetails(session) {
     vehicleRowsHtml = '<div style="color:var(--text-muted); margin-top:16px;">No vehicle breakdown data.</div>';
   }
 
-  modalBody.innerHTML = statsHtml + vehicleRowsHtml;
+  modalBody.innerHTML = contextHtml + statsHtml + vehicleRowsHtml;
   modal.classList.add('active');
 }
 
@@ -504,6 +536,7 @@ document.getElementById('editSessionForm').addEventListener('submit', async (e) 
     direction: document.getElementById('edit_direction').value,
     lanes: lanes,
     has_median: hasMedian,
+    day_classification: document.getElementById('edit_day_classification').value || null,
     start_time: document.getElementById('edit_start_time').value,
     end_time: document.getElementById('edit_end_time').value || null,
     status: 'ended',
@@ -546,7 +579,7 @@ document.getElementById('editSessionForm').addEventListener('submit', async (e) 
 
 document.getElementById('confirmCancelBtn').addEventListener('click', () => closeConfirmModal());
 document.getElementById('confirmOkBtn').addEventListener('click', () => {
-  if (pendingAction) pendingAction();
+  if (pendingAction && !pendingActionRunning) pendingAction();
 });
 document.getElementById('confirmModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('confirmModal')) closeConfirmModal();
@@ -555,7 +588,7 @@ document.getElementById('confirmModal').addEventListener('click', (e) => {
 // Delete All Modal handlers
 document.getElementById('confirmDeleteAllCancelBtn').addEventListener('click', () => closeConfirmModal(true));
 document.getElementById('confirmDeleteAllOkBtn').addEventListener('click', () => {
-  if (pendingAction) pendingAction();
+  if (pendingAction && !pendingActionRunning) pendingAction();
 });
 document.getElementById('confirmDeleteAllModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('confirmDeleteAllModal')) closeConfirmModal(true);

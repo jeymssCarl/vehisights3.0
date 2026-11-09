@@ -173,6 +173,16 @@
                 </select>
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit_day_classification">Day classification (optional)</label>
+                <select id="edit_day_classification">
+                  <option value="">None</option>
+                  <option value="market_day">Market Day</option>
+                  <option value="sunday">Sunday</option>
+                </select>
+              </div>
+            </div>
           </section>
 
           <section class="edit-section" aria-labelledby="surveyPeriodHeading">

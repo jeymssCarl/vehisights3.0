@@ -244,6 +244,7 @@ body {
   margin-bottom: 24px;
 }
 .filter-group { display: flex; flex-direction: column; gap: 5px; }
+.filter-group[hidden] { display: none !important; }
 .filter-group label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-dim); }
 .filter-group input, .filter-group select {
   background: var(--surface2);
@@ -254,6 +255,13 @@ body {
   color: var(--text);
   font-family: 'DM Sans', sans-serif;
   min-width: 160px;
+}
+.period-type-group select { min-width: 185px; }
+.filter-help {
+  flex: 1 0 100%;
+  margin-top: -5px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
 }
 .btn-secondary {
   background: var(--surface2);

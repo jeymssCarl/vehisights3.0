@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ManualCount;
 use App\Models\Session;
+use App\Services\ActivityNotificationService;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class ManualCountController extends Controller
                 'city' => 'required|string|max:255',
                 'dir_from' => 'nullable|string|max:255',
                 'dir_to' => 'nullable|string|max:255',
+                'day_classification' => 'nullable|in:market_day,sunday',
                 'date' => 'required|date',
                 'hour_start' => 'required|date_format:H:i',
                 'hour_end' => 'required|date_format:H:i',
@@ -74,6 +76,7 @@ class ManualCountController extends Controller
                     'barangay' => $validated['barangay'],
                     'city' => $validated['city'],
                     'direction' => $direction ?: 'Not specified',
+                    'day_classification' => $validated['day_classification'] ?? null,
                     'lanes' => $validated['lanes'],
                     'has_median' => $validated['has_median'],
                     'base_capacity_per_lane' => $validated['has_median'] ? 900 : 720,
@@ -90,6 +93,7 @@ class ManualCountController extends Controller
                     'city' => $validated['city'],
                     'direction_from' => $validated['dir_from'],
                     'direction_to' => $validated['dir_to'],
+                    'day_classification' => $validated['day_classification'] ?? null,
                     'count_date' => $validated['date'],
                     'hour_start' => $hourStart,
                     'hour_end' => $hourEnd,
@@ -103,6 +107,15 @@ class ManualCountController extends Controller
                     'created_by' => Auth::id(),
                 ]);
             });
+
+            ActivityNotificationService::send(
+                'Manual session added',
+                Auth::user()->name.' added a manual count for '.$validated['road'].'.',
+                '/manual-records',
+                'manual_session',
+                'created',
+                $manualCount->session_id
+            );
 
             return response()->json([
                 'success' => true,

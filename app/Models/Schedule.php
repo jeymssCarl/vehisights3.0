@@ -16,6 +16,7 @@ class Schedule extends Model
         'city',
         'direction_from',
         'direction_to',
+        'day_classification',
         'lanes',
         'has_median',
         'base_capacity_per_lane',

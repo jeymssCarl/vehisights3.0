@@ -76,12 +76,12 @@
         <div class="topbar-dash">
           <div class="topbar-dash-left">
             <h1>Traffic Prediction</h1>
-            <p>Hybrid Random Forest PCU forecasting and LOS classification</p>
+            <p>Random Forest traffic classification with derived PCU and V/C estimates</p>
           </div>
           <div class="prediction-actions">
             <div class="confidence-pill" id="modelStatusPill"><div class="dot"></div>
               @if ($modelStatus['ready'])
-                Model ready · {{ number_format($modelStatus['metrics']['validation_confidence'] ?? 0, 0) }}%
+                Classifier ready · {{ number_format(($modelStatus['metrics']['classifier_accuracy'] ?? 0) * 100, 0) }}% accuracy
               @else
                 {{ $modelStatus['available_rows'] }}/{{ $modelStatus['minimum_rows'] }} training rows
               @endif
@@ -98,19 +98,19 @@
 
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-label">Current Traffic</div><div class="kpi-value" id="kpiCurrent">—</div><div class="kpi-sub" id="kpiCurrentSub">Latest recorded PCU</div></div>
-          <div class="kpi"><div class="kpi-label">Predicted Next Hour</div><div class="kpi-value" id="kpiNext">—</div><div class="kpi-sub" id="kpiNextSub">Awaiting forecast</div></div>
-          <div class="kpi"><div class="kpi-label">Peak Forecast</div><div class="kpi-value" id="kpiPeak">—</div><div class="kpi-sub" id="kpiPeakSub">Awaiting forecast</div></div>
-          <div class="kpi"><div class="kpi-label">Validation Confidence</div><div class="kpi-value" id="kpiConf">—</div><div class="kpi-sub" id="kpiConfSub">Time-series validation estimate</div></div>
+          <div class="kpi"><div class="kpi-label">Next Hour Classification</div><div class="kpi-value" id="kpiNext">—</div><div class="kpi-sub" id="kpiNextSub">Awaiting RFC result</div></div>
+          <div class="kpi"><div class="kpi-label">Highest Traffic Class</div><div class="kpi-value" id="kpiPeak">—</div><div class="kpi-sub" id="kpiPeakSub">Awaiting RFC result</div></div>
+          <div class="kpi"><div class="kpi-label">RFC Accuracy</div><div class="kpi-value" id="kpiConf">—</div><div class="kpi-sub" id="kpiConfSub">Time-series validation accuracy</div></div>
         </div>
 
         <div class="two-col">
           <div class="card"><div class="card-head"><h3>Historical Traffic</h3><span id="historicalChartRange">Latest 24 recorded hours</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Recorded PCU</div></div><div class="chart-wrap"><canvas id="histChart"></canvas></div></div></div>
-          <div class="card"><div class="card-head"><h3>Prediction Trend</h3><span id="predictionChartRange">Selected forecast window</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Actual</div><div class="leg-item"><div class="leg-dashed" style="border-color:#b45309;"></div>Predicted</div></div><div class="chart-wrap"><canvas id="predChart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><h3>Estimated Traffic Trend</h3><span id="predictionChartRange">Selected classification window</span></div><div class="card-body"><div class="legend"><div class="leg-item"><div class="leg-swatch" style="background:#7B1D1D;"></div>Recorded PCU</div><div class="leg-item"><div class="leg-dashed" style="border-color:#b45309;"></div>Estimated PCU</div></div><div class="chart-wrap"><canvas id="predChart"></canvas></div></div></div>
         </div>
 
         <div class="full-card"><div class="card-head"><h3 id="forecastTableTitle">Traffic Forecast</h3><span id="forecastStation">{{ $roads->first() ?? 'No registered road' }}</span></div>
           <div class="prediction-message" id="predictionMessage" aria-live="polite"></div>
-          <table class="forecast-table"><thead><tr><th>Hour</th><th>PCU</th><th>V/C</th><th>LOS</th><th>Status</th><th>RFC Classification</th></tr></thead><tbody id="forecastBody"><tr><td colspan="6" class="prediction-empty">No forecast has been generated.</td></tr></tbody></table>
+          <table class="forecast-table"><thead><tr><th>Hour</th><th>Estimated PCU</th><th>Estimated V/C</th><th>Predicted LOS</th><th>Traffic Status</th><th>RFC Confidence</th></tr></thead><tbody id="forecastBody"><tr><td colspan="6" class="prediction-empty">No classification has been generated.</td></tr></tbody></table>
         </div>
 
         <div class="bottom-section">

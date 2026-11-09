@@ -95,33 +95,109 @@ if (hasChartData) {
   document.getElementById('chartEmptyState').style.display = 'flex';
 }
 
-function selectedFilters() {
-  const startDate = document.getElementById('start_date').value;
-  const endDate = document.getElementById('end_date').value;
-  const station = document.getElementById('station').value;
+const periodTypeInput = document.getElementById('period_type');
+const singleDateInput = document.getElementById('single_date');
+const monthInput = document.getElementById('report_month');
+const startDateInput = document.getElementById('start_date');
+const endDateInput = document.getElementById('end_date');
+const stationInput = document.getElementById('station');
 
-  return { startDate, endDate, station };
+function monthDateRange(month) {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return {
+    startDate: `${month}-01`,
+    endDate: `${month}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+function updatePeriodControls() {
+  const periodType = periodTypeInput.value;
+  document.getElementById('singleDateGroup').hidden = periodType !== 'date';
+  document.getElementById('monthGroup').hidden = periodType !== 'month';
+  document.getElementById('startDateGroup').hidden = periodType !== 'range';
+  document.getElementById('endDateGroup').hidden = periodType !== 'range';
+}
+
+function selectedFilters() {
+  const periodType = periodTypeInput.value;
+  let startDate = '';
+  let endDate = '';
+
+  if (periodType === 'date') {
+    startDate = singleDateInput.value;
+    endDate = singleDateInput.value;
+  } else if (periodType === 'month') {
+    const range = monthDateRange(monthInput.value);
+    startDate = range?.startDate || '';
+    endDate = range?.endDate || '';
+  } else {
+    startDate = startDateInput.value;
+    endDate = endDateInput.value;
+  }
+
+  return { periodType, startDate, endDate, station: stationInput.value };
 }
 
 function filtersAreValid() {
-  const { startDate, endDate } = selectedFilters();
+  const { periodType, startDate, endDate, station } = selectedFilters();
   const endInput = document.getElementById('end_date');
   endInput.setCustomValidity('');
-  if (!startDate || !endDate) return false;
+
+  const activeInput = periodType === 'date'
+    ? singleDateInput
+    : (periodType === 'month' ? monthInput : startDateInput);
+  activeInput.setCustomValidity('');
+
+  if (!startDate || !endDate) {
+    activeInput.setCustomValidity('Select the report period before generating or exporting.');
+    activeInput.reportValidity();
+    return false;
+  }
   if (startDate > endDate) {
     endInput.setCustomValidity('End date must be on or after the start date.');
     endInput.reportValidity();
     return false;
   }
+  if (!station) {
+    window.VehiSightsUI.showNotice({
+      title: 'No station or road available',
+      message: 'Add a completed manual or automatic session before generating a report.'
+    });
+    return false;
+  }
   return true;
 }
 
+function reportUrl(openSurvey = false) {
+  const { periodType, startDate, endDate, station } = selectedFilters();
+  const params = new URLSearchParams({
+    period_type: periodType,
+    start_date: startDate,
+    end_date: endDate,
+    station,
+  });
+  if (openSurvey) params.set('open_survey', '1');
+  return `/reports?${params.toString()}`;
+}
+
+function filtersMatchDisplayedReport() {
+  const selected = selectedFilters();
+  return selected.startDate === pageData.startDate
+    && selected.endDate === pageData.endDate
+    && selected.station === pageData.station;
+}
+
+periodTypeInput.addEventListener('change', updatePeriodControls);
+updatePeriodControls();
+
 document.getElementById('applyFilters').addEventListener('click', () => {
   if (!filtersAreValid()) return;
-  const { startDate, endDate, station } = selectedFilters();
-  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
-  if (station !== 'all') params.set('station', station);
-  window.location.href = `/reports?${params.toString()}`;
+  window.location.href = reportUrl();
 });
 
 async function downloadReport(endpoint, extension, trigger) {
@@ -142,11 +218,21 @@ async function downloadReport(endpoint, extension, trigger) {
       method: 'POST',
       headers: {
         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-        'Accept': extension === 'pdf' ? 'application/pdf' : 'text/csv'
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': extension === 'pdf'
+          ? 'application/pdf, application/json'
+          : 'text/csv, application/json'
       },
       body: formData
     });
-    if (!response.ok) throw new Error('The report could not be generated.');
+    if (!response.ok) {
+      let message = 'The report could not be generated.';
+      if (response.headers.get('content-type')?.includes('application/json')) {
+        const errorData = await response.json();
+        message = Object.values(errorData.errors || {}).flat()[0] || errorData.message || message;
+      }
+      throw new Error(message);
+    }
 
     const blob = await response.blob();
     const objectUrl = window.URL.createObjectURL(blob);
@@ -159,7 +245,7 @@ async function downloadReport(endpoint, extension, trigger) {
     window.URL.revokeObjectURL(objectUrl);
   } catch (error) {
     console.error(error);
-    window.alert('Unable to export the report. Please try again.');
+    window.VehiSightsUI.showNotice({ title: 'Report export failed', message: error.message || 'Unable to export the report. Please try again.' });
   } finally {
     trigger.disabled = false;
     trigger.textContent = originalText;
@@ -175,13 +261,34 @@ document.getElementById('exportPdfBtn').addEventListener('click', event => {
 });
 
 document.getElementById('generateFormBtn').addEventListener('click', () => {
+  if (!filtersAreValid()) return;
+
+  if (!filtersMatchDisplayedReport()) {
+    window.location.href = reportUrl(true);
+    return;
+  }
+
+  if (Number(pageData.totalRecords) === 0) {
+    window.VehiSightsUI.showNotice({
+      title: 'No completed records found',
+      message: 'There are no completed records for the selected report period and station. Adjust the filters and try again.'
+    });
+    return;
+  }
+
   document.getElementById('surveyModal').classList.add('active');
 });
+
+if (pageData.openSurvey && Number(pageData.totalRecords) > 0) {
+  document.getElementById('surveyModal').classList.add('active');
+  const cleanUrl = reportUrl();
+  window.history.replaceState(null, '', cleanUrl);
+}
 
 document.getElementById('printSurveyBtn').addEventListener('click', () => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
-    window.alert('Please allow pop-ups to print the survey form.');
+    window.VehiSightsUI.showNotice({ title: 'Pop-up blocked', message: 'Allow pop-ups for VehiSights, then try printing the survey form again.' });
     return;
   }
 

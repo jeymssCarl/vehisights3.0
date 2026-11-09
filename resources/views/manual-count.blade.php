@@ -101,6 +101,13 @@
             </select>
           </div>
           <div class="form-group"><label>Number of Lanes</label><input type="number" id="lanes" value="2" min="1"></div>
+          <div class="form-group"><label>Day Classification (Optional)</label>
+            <select id="dayClassification">
+              <option value="">None</option>
+              <option value="market_day">Market Day</option>
+              <option value="sunday">Sunday</option>
+            </select>
+          </div>
         </div>
 
         <table class="vehicle-table">

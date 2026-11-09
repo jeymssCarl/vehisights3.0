@@ -99,7 +99,7 @@
 <div id="detailsModal" class="modal-overlay">
   <div class="modal">
     <div class="modal-header">
-      <h3>Session Details</h3>
+      <h3 id="detailsModalTitle">Session Details</h3>
       <button class="modal-close" id="closeDetailsModalBtn">&times;</button>
     </div>
     <div class="modal-body" id="detailsModalBody">
@@ -125,12 +125,21 @@
           </div>
           <div class="form-group">
             <label>IP Address</label>
-            <input type="text" id="edit_ip_address" required>
+            <input type="text" id="edit_ip_address" readonly aria-readonly="true">
+            <small class="field-hint">The registered camera IP is fixed for completed records.</small>
           </div>
         </div>
         <div class="form-group">
           <label>Location</label>
           <input type="text" id="edit_location" required>
+        </div>
+        <div class="form-group">
+          <label>Day Classification (Optional)</label>
+          <select id="edit_day_classification">
+            <option value="">None</option>
+            <option value="market_day">Market Day</option>
+            <option value="sunday">Sunday</option>
+          </select>
         </div>
         <div class="form-row">
           <div class="form-group">

@@ -22,6 +22,7 @@ class AutoSession extends Model
         'barangay',
         'city',
         'direction',
+        'day_classification',
         'lanes',
         'has_median',
         'base_capacity_per_lane',

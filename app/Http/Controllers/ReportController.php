@@ -8,6 +8,7 @@ use App\Models\Schedule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ReportController extends Controller
 {
@@ -16,6 +17,17 @@ class ReportController extends Controller
         $stations = $this->stationOptions();
         [$startDate, $endDate, $station] = $this->resolveFilters($request, $stations);
         $report = $this->buildReportData($startDate, $endDate, $station);
+        $report['periodType'] = $this->resolvePeriodType($request, $startDate, $endDate);
+        $report['reportsPageData'] = [
+            'chartLabels' => $report['chartLabels'],
+            'chartData' => $report['chartData'],
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'station' => $station,
+            'periodType' => $report['periodType'],
+            'totalRecords' => $report['totalRecords'],
+            'openSurvey' => $request->boolean('open_survey'),
+        ];
 
         return view('reports', array_merge($report, [
             'stations' => $stations,
@@ -24,7 +36,7 @@ class ReportController extends Controller
 
     public function exportCsv(Request $request)
     {
-        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions());
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions(), true);
         $report = $this->buildReportData($startDate, $endDate, $station);
 
         $rows = [
@@ -37,7 +49,7 @@ class ReportController extends Controller
             ['Generated', $report['generatedAt']],
             ['Total Records', $report['totalRecords']],
             [],
-            ['Hour', 'Station / Road', 'Private Car / Taxi / Pick-up', 'Jeepney', 'Van', 'Bus & Mini Bus', 'Light Truck', 'Heavy Truck', 'Motorcycle', 'Tricycle', 'Total PCU', 'V/C Ratio', 'LOS', 'Source'],
+            ['Hour', 'Station / Road', 'Private Car / Taxi / Pick-up', 'Jeepney', 'Van', 'Bus & Mini Bus', 'Light Truck', 'Heavy Truck', 'Motorcycle', 'Tricycle', 'Total PCU', 'V/C Ratio', 'LOS', 'Day Classification', 'Source'],
         ];
 
         foreach ($report['hourlyData'] as $row) {
@@ -55,6 +67,7 @@ class ReportController extends Controller
                 round((float) $row['total_pcu'], 2),
                 round((float) $row['vc_ratio'], 2),
                 $row['los'],
+                $row['day_classification'],
                 ucfirst($row['source']),
             ];
         }
@@ -86,7 +99,7 @@ class ReportController extends Controller
 
     public function generatePdf(Request $request)
     {
-        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions());
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions(), true);
         $report = $this->buildReportData($startDate, $endDate, $station);
         $filename = "vehisights_vehicle_count_{$startDate}_to_{$endDate}.pdf";
 
@@ -95,19 +108,24 @@ class ReportController extends Controller
             ->download($filename);
     }
 
-    private function resolveFilters(Request $request, $stationOptions = null): array
+    private function resolveFilters(Request $request, $stationOptions = null, bool $strict = false): array
     {
+        $stationRules = [$strict ? 'required' : 'nullable', 'string', 'max:255'];
+        if ($strict) {
+            $stationRules[] = Rule::in(collect(['all'])->merge($stationOptions ?? collect())->all());
+        }
+
         $validated = $request->validate([
-            'start_date' => ['nullable', 'date'],
-            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
-            'station' => ['nullable', 'string', 'max:255'],
+            'start_date' => [$strict ? 'required' : 'nullable', 'date'],
+            'end_date' => [$strict ? 'required' : 'nullable', 'date', 'after_or_equal:start_date'],
+            'station' => $stationRules,
         ]);
 
         $station = $validated['station'] ?? 'all';
 
         // A bookmarked filter may point to a road that has since been deleted.
         // Fall back to the complete current dataset instead of retaining a stale option.
-        if ($station !== 'all' && $stationOptions !== null && ! $stationOptions->contains($station)) {
+        if (! $strict && $station !== 'all' && $stationOptions !== null && ! $stationOptions->contains($station)) {
             $station = 'all';
         }
 
@@ -120,11 +138,11 @@ class ReportController extends Controller
 
     private function buildReportData(string $startDate, string $endDate, string $station): array
     {
-        $start = Carbon::parse($startDate)->startOfDay();
-        $end = Carbon::parse($endDate)->endOfDay();
+        $start = Carbon::parse($startDate, 'Asia/Manila')->startOfDay()->utc();
+        $end = Carbon::parse($endDate, 'Asia/Manila')->endOfDay()->utc();
 
         $manualCounts = ManualCount::query()
-            ->whereBetween('count_date', [$start, $end])
+            ->whereBetween('count_date', [$startDate, $endDate])
             ->when($station !== 'all', fn ($query) => $query->where('road_name', $station))
             ->orderBy('hour_start')
             ->get();
@@ -164,7 +182,7 @@ class ReportController extends Controller
             'station' => $station,
             'stationLabel' => $station === 'all' ? 'All Stations / Roads' : $station,
             'dateRangeLabel' => Carbon::parse($startDate)->format('F j, Y').($startDate !== $endDate ? ' - '.Carbon::parse($endDate)->format('F j, Y') : ''),
-            'generatedAt' => now()->format('F j, Y g:i A'),
+            'generatedAt' => now('Asia/Manila')->format('F j, Y g:i A'),
             'chartLabels' => $hourlyData->pluck('hour')->toArray(),
             'chartData' => $hourlyData->pluck('total_pcu')->map(fn ($value) => (float) $value)->toArray(),
         ];
@@ -206,6 +224,7 @@ class ReportController extends Controller
                 $count->total_pcu,
                 $count->vc_ratio,
                 $count->los,
+                $count->day_classification,
                 'manual'
             ));
         }
@@ -216,8 +235,10 @@ class ReportController extends Controller
             }
 
             $counts = is_array($session->detail->counts) ? $session->detail->counts : (json_decode($session->detail->counts, true) ?: []);
-            $start = Carbon::parse($session->start_time);
-            $end = $session->end_time ? Carbon::parse($session->end_time) : $start->copy()->addHour();
+            $start = Carbon::parse($session->start_time)->setTimezone('Asia/Manila');
+            $end = $session->end_time
+                ? Carbon::parse($session->end_time)->setTimezone('Asia/Manila')
+                : $start->copy()->addHour();
 
             $data->push($this->reportRow(
                 $start,
@@ -227,6 +248,7 @@ class ReportController extends Controller
                 $session->detail->total_pcu,
                 $session->detail->vc_ratio,
                 $session->detail->los,
+                $session->day_classification,
                 'auto'
             ));
         }
@@ -234,7 +256,7 @@ class ReportController extends Controller
         return $data->sortBy('datetime')->values();
     }
 
-    private function reportRow(Carbon $start, Carbon $end, string $station, array $counts, $totalPcu, $vcRatio, $los, string $source): array
+    private function reportRow(Carbon $start, Carbon $end, string $station, array $counts, $totalPcu, $vcRatio, $los, ?string $dayClassification, string $source): array
     {
         return [
             'hour' => $start->format('H:i').'-'.$end->format('H:i'),
@@ -251,6 +273,11 @@ class ReportController extends Controller
             'total_pcu' => $totalPcu ?? 0,
             'vc_ratio' => $vcRatio ?? 0,
             'los' => $los ?: 'N/A',
+            'day_classification' => match ($dayClassification) {
+                'market_day' => 'Market Day',
+                'sunday' => 'Sunday',
+                default => 'Not specified',
+            },
             'source' => $source,
         ];
     }
@@ -261,6 +288,26 @@ class ReportController extends Controller
         $max = $hourlyData->sortByDesc(fn ($item) => $losOrder[$item['los']] ?? 0)->first();
 
         return $max['los'] ?? 'N/A';
+    }
+
+    private function resolvePeriodType(Request $request, string $startDate, string $endDate): string
+    {
+        $requested = $request->string('period_type')->toString();
+        if (in_array($requested, ['date', 'month', 'range'], true)) {
+            return $requested;
+        }
+
+        if ($startDate === $endDate) {
+            return 'date';
+        }
+
+        $start = Carbon::parse($startDate);
+        $end = Carbon::parse($endDate);
+        if ($start->isSameMonth($end) && $start->isStartOfMonth() && $end->isEndOfMonth()) {
+            return 'month';
+        }
+
+        return 'range';
     }
 
     private function csvSafe(string $value): string

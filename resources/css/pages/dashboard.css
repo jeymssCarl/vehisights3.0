@@ -346,9 +346,18 @@ input[type="date"]:focus {
 .stat-meta.up     { color: var(--green); }
 .stat-meta.warn   { color: var(--amber); }
 .stat-meta.danger { color: var(--red); }
-.mid-row   { display: grid; grid-template-columns: 1fr 0.85fr; gap: 12px; }
+.mid-row   { display: grid; grid-template-columns: minmax(0, 1fr) minmax(420px, 0.85fr); gap: 12px; align-items: start; }
 .bottom-row { display: grid; grid-template-columns: 1fr 0.75fr; gap: 12px; }
-.chart-wrap { position: relative; height: 260px; width: 100%; }
+.mid-row > .panel,
+.bottom-row > .panel,
+.dashboard-data-region { min-width: 0; }
+.mid-row > .panel { height: 342px; }
+.mid-row > .panel:first-child { display: flex; flex-direction: column; }
+.mid-row > .panel:first-child .chart-wrap { flex: 1 1 260px; }
+.mid-row > .panel:nth-child(2) { display: flex; flex-direction: column; }
+.mid-row > .panel:nth-child(2) #recentManualContainer { flex: 1 1 auto; min-height: 0; overflow: visible; }
+.chart-wrap { position: relative; height: 260px; width: 100%; min-width: 0; overflow: hidden; }
+.chart-wrap canvas { display: block; width: 100% !important; max-width: 100% !important; height: 100% !important; }
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -378,6 +387,16 @@ input[type="date"]:focus {
 .vtable tr:last-child td { border-bottom: none; }
 .vtable tbody tr { transition: background 0.1s; }
 .vtable tbody tr:hover td { background: var(--surface2); }
+#recentManualContainer { overflow-x: auto; }
+#recentManualContainer .vtable { table-layout: fixed; min-width: 0; }
+#recentManualContainer .vtable th:nth-child(1),
+#recentManualContainer .vtable td:nth-child(1) { width: 28%; }
+#recentManualContainer .vtable th:nth-child(2),
+#recentManualContainer .vtable td:nth-child(2) { width: 43%; overflow-wrap: anywhere; }
+#recentManualContainer .vtable th:nth-child(3),
+#recentManualContainer .vtable td:nth-child(3) { width: 17%; }
+#recentManualContainer .vtable th:nth-child(4),
+#recentManualContainer .vtable td:nth-child(4) { width: 12%; padding-right: 0; text-align: center; }
 .los-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px;

@@ -5,8 +5,10 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\AutoRecordsController;
+use App\Http\Controllers\AutoSessionIngestController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ManualCountController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PredictionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ScheduleController;
@@ -60,6 +62,10 @@ Route::get('/forgot-password', function () {
 
 Route::middleware(['auth'])->group(function () {
 
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+
     // Logout (POST request for security)
     Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
 
@@ -83,7 +89,10 @@ Route::middleware(['auth'])->group(function () {
 
     // AUTO RECORDS (automatic counting from cameras)
     Route::get('/auto-records', [AutoRecordsController::class, 'index'])->name('auto-records');
+    Route::get('/auto-records/data', [AutoRecordsController::class, 'data'])->name('auto-records.data');
     Route::delete('/auto-sessions/delete-all', [AutoRecordsController::class, 'destroyAll'])->name('auto-sessions.delete-all');
+    Route::post('/auto-sessions/start', [AutoSessionIngestController::class, 'start'])->name('auto-sessions.start');
+    Route::post('/auto-sessions/{autoSession}/stop', [AutoSessionIngestController::class, 'stop'])->name('auto-sessions.stop');
     Route::put('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'update'])->name('auto-sessions.update');
     Route::delete('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'destroy'])->name('auto-sessions.destroy');
 

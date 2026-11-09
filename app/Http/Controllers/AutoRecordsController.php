@@ -3,37 +3,53 @@
 namespace App\Http\Controllers;
 
 use App\Models\AutoSession;
+use App\Models\ScheduleLog;
 use App\Models\TrafficHistory;
+use App\Services\ActivityNotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AutoRecordsController extends Controller
 {
     public function index()
     {
-        $sessions = AutoSession::query()
-            ->with(['detail', 'schedule', 'camera'])
-            ->where('status', 'ended')
-            ->whereHas('detail')
-            ->orderByDesc('end_time')
-            ->get();
+        $this->closeExpiredSessions();
+        $sessions = $this->recordsQuery()->get();
 
         return view('auto-records', compact('sessions'));
     }
 
+    public function data()
+    {
+        $this->closeExpiredSessions();
+
+        return response()->json([
+            'success' => true,
+            'sessions' => $this->recordsQuery()->get(),
+        ]);
+    }
+
     public function update(Request $request, AutoSession $autoSession)
     {
+        if ($autoSession->status !== 'ended') {
+            throw ValidationException::withMessages([
+                'session' => 'Active automatic sessions cannot be edited. Stop the session first.',
+            ]);
+        }
+
         $validated = $request->validate([
             'camera_name' => 'required|string|max:255',
-            'ip_address' => 'required|ip',
             'location' => 'required|string|max:255',
+            'day_classification' => 'nullable|in:market_day,sunday',
             'start_time' => 'required|date',
             'end_time' => 'required|date|after:start_time',
-            'status' => 'required|in:ended',
         ]);
 
         $autoSession->update($validated);
+
+        ActivityNotificationService::send('Automatic record updated', auth()->user()->name.' updated '.$autoSession->session_code.'.', '/auto-records', 'auto_session', 'updated', $autoSession->id);
 
         return response()->json([
             'success' => true,
@@ -43,10 +59,37 @@ class AutoRecordsController extends Controller
 
     public function destroy(AutoSession $autoSession)
     {
+        if ($autoSession->status === 'active') {
+            throw ValidationException::withMessages([
+                'session' => 'An active automatic session cannot be cancelled, edited, or deleted.',
+            ]);
+        }
+
+        $sessionCode = $autoSession->session_code;
+        $sessionId = $autoSession->id;
+
         DB::transaction(function () use ($autoSession) {
             $this->deleteTrafficHistory($autoSession);
+
+            if ($autoSession->status === 'scheduled') {
+                ScheduleLog::query()
+                    ->where('auto_session_id', $autoSession->id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'failed',
+                        'completed_at' => now(),
+                        'error_message' => 'The scheduled session was cancelled from Auto Records.',
+                    ]);
+
+                if ($autoSession->schedule?->recurrence === 'once') {
+                    $autoSession->schedule->update(['is_active' => false]);
+                }
+            }
+
             $autoSession->delete();
         });
+
+        ActivityNotificationService::send('Automatic record deleted', auth()->user()->name.' deleted '.$sessionCode.'.', '/auto-records', 'auto_session', 'deleted', $sessionId);
 
         return response()->json([
             'success' => true,
@@ -57,6 +100,7 @@ class AutoRecordsController extends Controller
 
     public function destroyAll()
     {
+        $deletedCount = AutoSession::query()->where('status', 'ended')->whereHas('detail')->count();
         DB::transaction(function () {
             AutoSession::query()
                 ->where('status', 'ended')
@@ -67,6 +111,8 @@ class AutoRecordsController extends Controller
                     $session->delete();
                 });
         });
+
+        ActivityNotificationService::send('Automatic records cleared', auth()->user()->name.' deleted '.$deletedCount.' completed automatic record(s).', '/auto-records', 'auto_session', 'deleted');
 
         return response()->json([
             'success' => true,
@@ -89,5 +135,170 @@ class AutoRecordsController extends Controller
             ->whereDate('hour_timestamp', $start->toDateString())
             ->whereTime('hour_timestamp', $start->copy()->startOfHour()->format('H:i:s'))
             ->delete();
+    }
+
+    private function recordsQuery()
+    {
+        return AutoSession::query()
+            ->with(['detail', 'schedule', 'camera', 'user'])
+            ->whereIn('status', ['scheduled', 'active', 'ended'])
+            ->whereHas('detail')
+            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END")
+            ->orderByDesc('start_time');
+    }
+
+    private function closeExpiredSessions(): void
+    {
+        AutoSession::query()
+            ->where('status', 'active')
+            ->where('start_time', '>', now())
+            ->get()
+            ->each(function (AutoSession $candidate) {
+                DB::transaction(function () use ($candidate) {
+                    $session = AutoSession::query()->lockForUpdate()->find($candidate->id);
+
+                    if (! $session || $session->status !== 'active' || now()->gte($session->start_time)) {
+                        return;
+                    }
+
+                    $session->update(['status' => 'scheduled']);
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->where('status', 'running')
+                        ->update([
+                            'status' => 'pending',
+                            'started_at' => null,
+                            'completed_at' => null,
+                            'error_message' => null,
+                        ]);
+                });
+            });
+
+        AutoSession::query()
+            ->where('status', 'scheduled')
+            ->where('start_time', '<=', now())
+            ->get()
+            ->each(function (AutoSession $candidate) {
+                DB::transaction(function () use ($candidate) {
+                    $session = AutoSession::query()->lockForUpdate()->find($candidate->id);
+
+                    if (! $session || $session->status !== 'scheduled' || now()->lt($session->start_time)) {
+                        return;
+                    }
+
+                    if ($session->end_time && now()->gte($session->end_time)) {
+                        $session->update(['status' => 'ended']);
+                        ScheduleLog::query()
+                            ->where('auto_session_id', $session->id)
+                            ->where('status', 'pending')
+                            ->update([
+                                'status' => 'failed',
+                                'completed_at' => $session->end_time,
+                                'error_message' => 'The camera did not start before the scheduled counting window ended.',
+                            ]);
+
+                        if ($session->schedule?->recurrence === 'once') {
+                            $session->schedule->update(['is_active' => false]);
+                        }
+
+                        return;
+                    }
+
+                    $session->update(['status' => 'active']);
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->where('status', 'pending')
+                        ->update([
+                            'status' => 'running',
+                            'started_at' => $session->start_time,
+                            'error_message' => null,
+                        ]);
+                });
+            });
+
+        AutoSession::query()
+            ->with(['schedule', 'detail', 'camera'])
+            ->where('status', 'active')
+            ->whereNotNull('schedule_id')
+            ->get()
+            ->each(function (AutoSession $candidate) {
+                $schedule = $candidate->schedule;
+                if (! $schedule || ! $schedule->end_time) {
+                    return;
+                }
+
+                $endDate = ($schedule->end_date ?: $schedule->start_date)->format('Y-m-d');
+                $scheduledEnd = Carbon::parse(
+                    $endDate.' '.$schedule->end_time,
+                    'Asia/Manila'
+                )->utc();
+                $scheduledStart = Carbon::parse(
+                    $schedule->start_date->format('Y-m-d').' '.$schedule->start_time,
+                    'Asia/Manila'
+                )->utc();
+
+                if ($scheduledEnd->lessThanOrEqualTo($scheduledStart)) {
+                    $scheduledEnd->addDay();
+                }
+
+                if (now()->lt($scheduledEnd)) {
+                    return;
+                }
+
+                DB::transaction(function () use ($candidate, $scheduledEnd) {
+                    $session = AutoSession::query()
+                        ->with(['schedule', 'detail', 'camera'])
+                        ->lockForUpdate()
+                        ->find($candidate->id);
+
+                    if (! $session || $session->status !== 'active') {
+                        return;
+                    }
+
+                    $detail = $session->detail;
+                    $counts = $detail?->counts ?? array_fill(0, 8, 0);
+                    $totalPcu = (float) ($detail?->total_pcu ?? 0);
+                    $vcRatio = (float) ($detail?->vc_ratio ?? 0);
+                    $los = $detail?->los ?? 'A';
+
+                    $session->update([
+                        'end_time' => $scheduledEnd,
+                        'status' => 'ended',
+                    ]);
+
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->where('status', 'running')
+                        ->update([
+                            'status' => 'success',
+                            'completed_at' => $scheduledEnd,
+                            'error_message' => null,
+                        ]);
+
+                    if ($session->schedule?->recurrence === 'once') {
+                        $session->schedule->update(['is_active' => false]);
+                    }
+
+                    if ($session->camera) {
+                        $session->camera->update(['last_detection_at' => $scheduledEnd]);
+                    }
+
+                    TrafficHistory::updateOrCreate(
+                        [
+                            'camera_id' => $session->camera_id,
+                            'hour_timestamp' => Carbon::parse($session->start_time)->startOfHour(),
+                            'source' => 'auto',
+                        ],
+                        [
+                            'road_name' => $session->road_name ?: $session->location,
+                            'direction' => $session->direction,
+                            'total_pcu' => $totalPcu,
+                            'vc_ratio' => $vcRatio,
+                            'los' => $los,
+                            'counts' => $counts,
+                        ]
+                    );
+                });
+            });
     }
 }

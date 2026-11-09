@@ -33,11 +33,11 @@
 
   <table class="report-data">
     <colgroup>
-      <col style="width:8%"><col style="width:15%"><col style="width:12%"><col style="width:6%"><col style="width:4%"><col style="width:5%"><col style="width:6%"><col style="width:6%"><col style="width:7%"><col style="width:6%"><col style="width:8%"><col style="width:5%"><col style="width:4%"><col style="width:8%">
+      <col style="width:8%"><col style="width:15%"><col style="width:11%"><col style="width:5%"><col style="width:4%"><col style="width:5%"><col style="width:5%"><col style="width:5%"><col style="width:6%"><col style="width:5%"><col style="width:7%"><col style="width:5%"><col style="width:4%"><col style="width:8%"><col style="width:7%">
     </colgroup>
     <thead>
       <tr>
-        <th>Hour</th><th>Station / Road</th><th>Private Car / Taxi / Pick-up</th><th>Jeepney</th><th>Van</th><th>Bus &amp; Mini Bus</th><th>Light Truck</th><th>Heavy Truck</th><th>Motorcycle</th><th>Tricycle</th><th>Total PCU</th><th>V/C Ratio</th><th>LOS</th><th>Source</th>
+        <th>Hour</th><th>Station / Road</th><th>Private Car / Taxi / Pick-up</th><th>Jeepney</th><th>Van</th><th>Bus &amp; Mini Bus</th><th>Light Truck</th><th>Heavy Truck</th><th>Motorcycle</th><th>Tricycle</th><th>Total PCU</th><th>V/C Ratio</th><th>LOS</th><th>Day Classification</th><th>Source</th>
       </tr>
     </thead>
     <tbody>
@@ -56,10 +56,11 @@
           <td><strong>{{ number_format($row['total_pcu'], 2) }}</strong></td>
           <td>{{ number_format($row['vc_ratio'], 2) }}</td>
           <td><strong>{{ $row['los'] }}</strong></td>
+          <td>{{ $row['day_classification'] }}</td>
           <td><span class="report-source">{{ ucfirst($row['source']) }}</span></td>
         </tr>
       @empty
-        <tr><td colspan="14" class="report-empty">No vehicle count records match the selected filters.</td></tr>
+        <tr><td colspan="15" class="report-empty">No vehicle count records match the selected filters.</td></tr>
       @endforelse
     </tbody>
   </table>

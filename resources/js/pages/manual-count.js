@@ -142,6 +142,7 @@
       city: document.getElementById('city').value,
       dir_from: document.getElementById('dirFrom').value,
       dir_to: document.getElementById('dirTo').value,
+      day_classification: document.getElementById('dayClassification').value || null,
       date: document.getElementById('date').value,
       hour_start: document.getElementById('hourStart').value,
       hour_end: document.getElementById('hourEnd').value,

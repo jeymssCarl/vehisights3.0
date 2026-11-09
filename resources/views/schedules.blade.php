@@ -175,15 +175,37 @@
               <div class="grid-3">
                 <div class="field">
                   <label>Date <span class="req">*</span></label>
-                  <input type="date" id="date" value="{{ date('Y-m-d') }}" required>
+                  <input type="date" id="date" value="{{ now('Asia/Manila')->toDateString() }}" min="{{ now('Asia/Manila')->toDateString() }}" required>
                 </div>
                 <div class="field">
-                  <label>Start Time <span class="req">*</span></label>
-                  <input type="time" id="start_time" value="06:00" required>
+                  <label>Start Time (24-hour) <span class="req">*</span></label>
+                  <div class="custom-time-picker" data-picker-type="start">
+                    <input type="time" id="start_time" value="{{ now('Asia/Manila')->addMinute()->format('H:i') }}" class="time-picker-value" required tabindex="-1" aria-hidden="true">
+                    <button type="button" class="time-picker-trigger" aria-haspopup="dialog" aria-expanded="false">
+                      <span class="time-picker-display"></span>
+                      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    </button>
+                    <div class="time-picker-panel" role="dialog" aria-label="Select start time">
+                      <div class="time-picker-column picker-hours"></div>
+                      <div class="time-picker-column picker-minutes"></div>
+                      <div class="time-picker-column picker-periods"></div>
+                    </div>
+                  </div>
                 </div>
                 <div class="field">
-                  <label>End Time <span class="req">*</span></label>
-                  <input type="time" id="end_time" value="07:00" required>
+                  <label>End Time (24-hour) <span class="req">*</span></label>
+                  <div class="custom-time-picker" data-picker-type="end">
+                    <input type="time" id="end_time" value="23:59" class="time-picker-value" required tabindex="-1" aria-hidden="true">
+                    <button type="button" class="time-picker-trigger" aria-haspopup="dialog" aria-expanded="false">
+                      <span class="time-picker-display"></span>
+                      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    </button>
+                    <div class="time-picker-panel" role="dialog" aria-label="Select end time">
+                      <div class="time-picker-column picker-hours"></div>
+                      <div class="time-picker-column picker-minutes"></div>
+                      <div class="time-picker-column picker-periods"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -191,7 +213,7 @@
             <!-- Section 4: Road Config -->
             <div class="form-section">
               <div class="section-label">Road Configuration</div>
-              <div class="grid-2">
+              <div class="grid-3">
                 <div class="field">
                   <label>Median Type</label>
                   <select id="has_median">
@@ -202,6 +224,14 @@
                 <div class="field">
                   <label>Number of Lanes <span class="req">*</span></label>
                   <input type="number" id="lanes" value="2" min="1" required>
+                </div>
+                <div class="field">
+                  <label>Day Classification <span class="optional-label">Optional</span></label>
+                  <select id="day_classification">
+                    <option value="">None</option>
+                    <option value="market_day">Market Day</option>
+                    <option value="sunday">Sunday</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -248,7 +278,38 @@
   </main>
 </div><!-- /layout -->
 
-<script type="application/json" id="page-data">@json(['today' => date('Y-m-d')])</script>
+<!-- SCHEDULE NOTICE MODAL -->
+<div id="scheduleNoticeModal" class="schedule-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="scheduleNoticeTitle">
+  <div class="schedule-modal schedule-notice-modal">
+    <button type="button" class="schedule-modal-close" id="scheduleNoticeCloseBtn" aria-label="Close">&times;</button>
+    <div class="schedule-modal-icon" id="scheduleNoticeIcon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+    </div>
+    <h2 id="scheduleNoticeTitle">Unable to Start Session</h2>
+    <p id="scheduleNoticeMessage"></p>
+    <button type="button" class="schedule-modal-primary" id="scheduleNoticeOkBtn">Okay</button>
+  </div>
+</div>
+
+<!-- CLEAR FORM CONFIRMATION MODAL -->
+<div id="scheduleConfirmModal" class="schedule-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="scheduleConfirmTitle">
+  <div class="schedule-modal schedule-confirm-modal">
+    <div class="schedule-modal-icon warning" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.6 2.2 18a2 2 0 0 0 1.8 3h16a2 2 0 0 0 1.8-3L13.7 3.6a2 2 0 0 0-3.4 0z"/></svg>
+    </div>
+    <h2 id="scheduleConfirmTitle">Clear schedule form?</h2>
+    <p>Your entered session information will be removed.</p>
+    <div class="schedule-modal-actions">
+      <button type="button" class="schedule-modal-secondary" id="scheduleConfirmCancelBtn">Keep Editing</button>
+      <button type="button" class="schedule-modal-primary" id="scheduleConfirmOkBtn">Clear Form</button>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="page-data">@json([
+  'today' => now('Asia/Manila')->toDateString(),
+  'currentTime' => now('Asia/Manila')->format('H:i'),
+])</script>
 @vite('resources/js/pages/schedules.js')
 </body>
 </html>

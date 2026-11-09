@@ -55,3 +55,15 @@ document.getElementById('applyFilterBtn').addEventListener('click', applyDateRan
 document.getElementById('resetTodayBtn').addEventListener('click', resetToToday);
 
 initializeDashboardChart();
+
+let chartResizeFrame = null;
+window.addEventListener('resize', () => {
+  window.cancelAnimationFrame(chartResizeFrame);
+  chartResizeFrame = window.requestAnimationFrame(() => {
+    dashboardChart?.resize();
+  });
+}, { passive: true });
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) dashboardChart?.resize();
+});

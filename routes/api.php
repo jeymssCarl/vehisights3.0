@@ -24,8 +24,14 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
     Route::post('/logout', [TokenAuthController::class, 'logout']);
-    Route::apiResource('cameras', CameraController::class)->except('show');
-    Route::get('/schedules/pending', [AutoSessionIngestController::class, 'pending']);
-    Route::post('/auto-sessions/start', [AutoSessionIngestController::class, 'start']);
-    Route::post('/auto-sessions/{autoSession}/complete', [AutoSessionIngestController::class, 'complete']);
+    Route::apiResource('cameras', CameraController::class)
+        ->except('show')
+        ->middleware('ability:camera:manage');
+
+    Route::middleware('ability:auto-session:write')->group(function () {
+        Route::get('/schedules/pending', [AutoSessionIngestController::class, 'pending']);
+        Route::post('/auto-sessions/start', [AutoSessionIngestController::class, 'start']);
+        Route::patch('/auto-sessions/{autoSession}/counts', [AutoSessionIngestController::class, 'updateCounts']);
+        Route::post('/auto-sessions/{autoSession}/complete', [AutoSessionIngestController::class, 'complete']);
+    });
 });

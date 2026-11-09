@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Session;
 use App\Models\TrafficHistory;
+use App\Services\ActivityNotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class SessionController extends Controller
             'direction' => 'required|string|max:255',
             'lanes' => 'required|integer|min:1',
             'has_median' => 'required|boolean',
+            'day_classification' => 'nullable|in:market_day,sunday',
             'start_time' => 'required|date',
             'end_time' => 'nullable|date|after:start_time',
             'status' => 'required|in:ended',
@@ -61,9 +63,12 @@ class SessionController extends Controller
                     'hour_end' => $end->format('H:i:s'),
                     'has_median' => $validated['has_median'],
                     'lanes' => $validated['lanes'],
+                    'day_classification' => $validated['day_classification'] ?? null,
                 ]);
             }
         });
+
+        ActivityNotificationService::send('Manual session updated', auth()->user()->name.' updated '.$session->session_code.'.', '/manual-records', 'manual_session', 'updated', $session->id);
 
         return response()->json([
             'success' => true,
@@ -73,6 +78,8 @@ class SessionController extends Controller
 
     public function destroy(Session $session)
     {
+        $sessionCode = $session->session_code;
+        $sessionId = $session->id;
         DB::transaction(function () use ($session) {
             $start = Carbon::parse($session->start_time);
 
@@ -85,6 +92,8 @@ class SessionController extends Controller
             $session->delete();
         });
 
+        ActivityNotificationService::send('Manual session deleted', auth()->user()->name.' deleted '.$sessionCode.'.', '/manual-records', 'manual_session', 'deleted', $sessionId);
+
         return response()->json([
             'success' => true,
             'message' => 'Manual record deleted successfully',
@@ -94,6 +103,7 @@ class SessionController extends Controller
 
     public function destroyAll()
     {
+        $deletedCount = Session::query()->whereHas('manualCount')->count();
         DB::transaction(function () {
             $sessions = Session::query()->whereHas('manualCount')->get();
 
@@ -108,6 +118,8 @@ class SessionController extends Controller
                 $session->delete();
             }
         });
+
+        ActivityNotificationService::send('Manual records cleared', auth()->user()->name.' deleted '.$deletedCount.' manual record(s).', '/manual-records', 'manual_session', 'deleted');
 
         return response()->json([
             'success' => true,
@@ -125,6 +137,7 @@ class SessionController extends Controller
             'direction' => 'required|string|max:255',
             'lanes' => 'required|integer|min:1',
             'has_median' => 'required|boolean',
+            'day_classification' => 'nullable|in:market_day,sunday',
             'start_time' => 'required|date',
             'end_time' => 'nullable|date|after:start_time',
             'status' => 'required|in:ended',
@@ -158,6 +171,7 @@ class SessionController extends Controller
                 'lanes' => $validated['lanes'],
                 'has_median' => $validated['has_median'],
                 'base_capacity_per_lane' => $validated['has_median'] ? 900 : 720,
+                'day_classification' => $validated['day_classification'] ?? null,
                 'start_time' => $newStart,
                 'end_time' => $newEnd,
                 'status' => 'ended',
@@ -174,6 +188,7 @@ class SessionController extends Controller
                 'hour_end' => $newEnd->format('H:i:s'),
                 'has_median' => $validated['has_median'],
                 'lanes' => $validated['lanes'],
+                'day_classification' => $validated['day_classification'] ?? null,
                 'counts' => $validated['counts'],
                 'pcu_totals' => $validated['pcu_totals'],
                 'total_pcu' => $validated['total_pcu'],
@@ -205,6 +220,8 @@ class SessionController extends Controller
                     'counts' => $validated['counts'],
                 ]);
         });
+
+        ActivityNotificationService::send('Manual session updated', auth()->user()->name.' updated '.$session->session_code.' and its vehicle counts.', '/manual-records', 'manual_session', 'updated', $session->id);
 
         return response()->json([
             'success' => true,

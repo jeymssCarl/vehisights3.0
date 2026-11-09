@@ -70,8 +70,8 @@ function updateModelStatus(status) {
   const pill = document.getElementById('modelStatusPill');
   if (!pill) return;
   if (modelReady) {
-    const confidence = status.metrics?.validation_confidence || 0;
-    pill.innerHTML = `<div class="dot"></div>Model ready · ${Number(confidence).toFixed(0)}%`;
+    const accuracy = Number(status.metrics?.classifier_accuracy || 0) * 100;
+    pill.innerHTML = `<div class="dot"></div>Classifier ready · ${accuracy.toFixed(0)}% accuracy`;
   } else {
     pill.innerHTML = `<div class="dot"></div>${status.available_rows}/${status.minimum_rows} training rows`;
   }
@@ -119,7 +119,7 @@ function makePredictionChart(actual = [], predicted = []) {
           pointRadius: 3,
         },
         {
-          label: 'Forecast',
+          label: 'Estimated PCU',
           data: [...actual.map(() => null), ...predicted.map(row => Number(row.predicted_pcu))],
           borderColor: '#b45309',
           backgroundColor: 'rgba(180,83,9,0.06)',
@@ -155,19 +155,34 @@ function buildForecastTable(predictions = []) {
   const tbody = document.getElementById('forecastBody');
   if (!tbody) return;
   if (!predictions.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="prediction-empty">No forecast is available.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="prediction-empty">No RFC classification is available.</td></tr>';
     return;
   }
-  tbody.innerHTML = predictions.map(row => `
+  tbody.innerHTML = predictions.map(row => {
+    const predictedLos = row.rfc_predicted_los || row.predicted_los || '—';
+    const status = trafficStatus(predictedLos);
+    return `
     <tr class="pred-row">
       <td class="mono-value">${formatHour(row.timestamp)}</td>
       <td class="mono-value strong">${formatNumber(row.predicted_pcu)}</td>
       <td class="mono-value">${Number(row.predicted_vc_ratio).toFixed(2)}</td>
-      <td><span class="los-badge ${losClass(row.predicted_los)}">${escapeHtml(row.predicted_los)}</span></td>
-      <td>${escapeHtml(row.status)}</td>
-      <td class="forecast-type ${row.rfc_matches_capacity_los ? '' : 'classifier-disagreement'}">LOS ${escapeHtml(row.rfc_predicted_los)} · ${Number(row.rfc_confidence || 0).toFixed(0)}%</td>
+      <td><span class="los-badge ${losClass(predictedLos)}">${escapeHtml(predictedLos)}</span></td>
+      <td>${escapeHtml(status)}</td>
+      <td class="forecast-type">${Number(row.rfc_confidence || 0).toFixed(0)}%</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
+}
+
+function trafficStatus(los) {
+  return {
+    A: 'Free Flow',
+    B: 'Light',
+    C: 'Moderate',
+    D: 'Heavy',
+    E: 'Severe',
+    F: 'Breakdown',
+  }[String(los || '').toUpperCase()] || 'Unclassified';
 }
 
 function updateSummary(payload) {
@@ -175,31 +190,35 @@ function updateSummary(payload) {
   const historical = payload.historical_data || [];
   const current = historical.at(-1);
   const next = predictions[0];
-  const peak = predictions.reduce((best, row) => !best || Number(row.predicted_pcu) > Number(best.predicted_pcu) ? row : best, null);
-  const confidence = payload.forecast?.metrics?.validation_confidence || 0;
+  const severity = { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6 };
+  const highestClass = predictions.reduce((best, row) => {
+    const rowLos = String(row.rfc_predicted_los || row.predicted_los || '').toUpperCase();
+    const bestLos = String(best?.rfc_predicted_los || best?.predicted_los || '').toUpperCase();
+    return !best || (severity[rowLos] || 0) > (severity[bestLos] || 0) ? row : best;
+  }, null);
+  const classifierAccuracy = Number(payload.forecast?.metrics?.classifier_accuracy || 0) * 100;
+  const nextLos = next?.rfc_predicted_los || next?.predicted_los;
+  const highestLos = highestClass?.rfc_predicted_los || highestClass?.predicted_los;
 
   document.getElementById('kpiCurrent').textContent = current ? formatNumber(current.total_pcu) : '—';
   document.getElementById('kpiCurrentSub').textContent = current ? `Recorded ${formatHour(current.timestamp)}` : 'No historical record';
-  document.getElementById('kpiNext').textContent = next ? formatNumber(next.predicted_pcu) : '—';
-  document.getElementById('kpiNextSub').textContent = next ? `PCU at ${formatHour(next.timestamp)}` : 'Awaiting forecast';
-  document.getElementById('kpiPeak').textContent = peak ? formatHour(peak.timestamp) : '—';
-  document.getElementById('kpiPeakSub').textContent = peak ? `LOS ${peak.predicted_los} · ${formatNumber(peak.predicted_pcu)} PCU` : 'Awaiting forecast';
-  document.getElementById('kpiConf').textContent = `${Number(confidence).toFixed(0)}%`;
-  document.getElementById('kpiConfSub').textContent = 'Time-series validation estimate';
+  document.getElementById('kpiNext').textContent = nextLos ? `LOS ${nextLos}` : '—';
+  document.getElementById('kpiNextSub').textContent = next ? `${trafficStatus(nextLos)} · ${Number(next.rfc_confidence || 0).toFixed(0)}% confidence` : 'Awaiting RFC result';
+  document.getElementById('kpiPeak').textContent = highestLos ? `LOS ${highestLos}` : '—';
+  document.getElementById('kpiPeakSub').textContent = highestClass ? `${trafficStatus(highestLos)} at ${formatHour(highestClass.timestamp)}` : 'Awaiting RFC result';
+  document.getElementById('kpiConf').textContent = `${classifierAccuracy.toFixed(0)}%`;
+  document.getElementById('kpiConfSub').textContent = 'Time-series classifier accuracy';
   document.getElementById('forecastStation').textContent = stationSelect.value;
-  document.getElementById('forecastTableTitle').textContent = `Traffic Forecast — Next ${predictions.length} Hours`;
-  document.getElementById('predictionChartRange').textContent = `Next ${predictions.length} forecast hours`;
+  document.getElementById('forecastTableTitle').textContent = `RFC Traffic Classification — Next ${predictions.length} Hours`;
+  document.getElementById('predictionChartRange').textContent = `Next ${predictions.length} classified hours`;
   document.getElementById('historicalChartRange').textContent = `${historical.length} latest recorded hours`;
-  document.getElementById('insightConfidence').innerHTML = `<div class="dot"></div>Validation confidence: ${Number(confidence).toFixed(0)}%`;
+  document.getElementById('insightConfidence').innerHTML = `<div class="dot"></div>RFC validation accuracy: ${classifierAccuracy.toFixed(0)}%`;
 
-  const highestLos = peak?.predicted_los || 'N/A';
-  const agreementCount = predictions.filter(row => row.rfc_matches_capacity_los).length;
   document.getElementById('insightItems').innerHTML = [
-    `${predictions.length} hourly forecasts generated for ${stationSelect.value}.`,
-    peak ? `Expected peak is ${formatNumber(peak.predicted_pcu)} PCU at ${formatHour(peak.timestamp)}.` : 'No peak forecast is available.',
-    `Highest forecast Level of Service: ${highestLos}.`,
-    `RFC agreed with capacity-derived LOS in ${agreementCount} of ${predictions.length} forecast hours.`,
-    `Capacity used for V/C calculation: ${formatNumber(payload.forecast?.capacity)} PCU/hour.`,
+    `${predictions.length} hourly RFC classifications generated for ${stationSelect.value}.`,
+    highestClass ? `Highest predicted condition is LOS ${highestLos} (${trafficStatus(highestLos)}) at ${formatHour(highestClass.timestamp)}.` : 'No classification result is available.',
+    `PCU and V/C values are displayed as estimates supporting the predicted traffic class.`,
+    `Road capacity used for the estimates: ${formatNumber(payload.forecast?.capacity)} PCU/hour.`,
   ].map(text => `<div class="insight-item">${escapeHtml(text)}</div>`).join('');
 }
 
@@ -215,7 +234,7 @@ async function refreshForecast() {
 
   forecastRequest?.abort();
   forecastRequest = new AbortController();
-  setMessage('Generating forecast…');
+    setMessage('Generating RFC traffic classifications…');
   try {
     const response = await fetch(root.dataset.forecastUrl, {
       method: 'POST',

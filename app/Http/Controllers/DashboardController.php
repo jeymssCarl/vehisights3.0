@@ -61,7 +61,7 @@ class DashboardController extends Controller
         }
 
         // Recent manual counts
-        $recentManual = ManualCount::whereBetween('count_date', [$start, $end])->latest()->limit(10)->get()->map(function ($m) {
+        $recentManual = ManualCount::whereBetween('count_date', [$start, $end])->latest()->limit(4)->get()->map(function ($m) {
             return ['time' => Carbon::parse($m->hour_start)->format('H:i').'–'.Carbon::parse($m->hour_end)->format('H:i'), 'station' => $m->road_name, 'pcu' => $m->total_pcu, 'los' => $m->los];
         });
 
