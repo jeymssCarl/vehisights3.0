@@ -162,7 +162,16 @@ class TrafficPredictionService
     private function runPython(array $arguments): ProcessResult
     {
         $command = array_merge([config('predictions.python_binary')], $arguments);
-        $result = Process::timeout(config('predictions.process_timeout'))->run($command);
+        $result = Process::env([
+            'PYTHONHASHSEED' => '0',
+            'PYTHONUTF8' => '1',
+            'JOBLIB_MULTIPROCESSING' => '0',
+            'LOKY_MAX_CPU_COUNT' => '1',
+            'VEHISIGHTS_ML_NO_ASYNCIO' => '1',
+            'OMP_NUM_THREADS' => '1',
+            'OPENBLAS_NUM_THREADS' => '1',
+            'MKL_NUM_THREADS' => '1',
+        ])->timeout(config('predictions.process_timeout'))->run($command);
 
         if ($result->failed()) {
             $message = trim($result->errorOutput()) ?: trim($result->output());

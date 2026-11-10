@@ -63,6 +63,19 @@ function setMessage(message = '', tone = 'info') {
   element.hidden = !message;
 }
 
+function setForecastLoading(isLoading) {
+  const indicator = document.getElementById('forecastLoading');
+  const indicatorText = document.getElementById('forecastLoadingText');
+  root?.classList.toggle('is-forecast-loading', isLoading);
+  root?.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+  if (!indicator) return;
+  indicator.hidden = !isLoading;
+  if (isLoading && indicatorText) {
+    const hours = Number(windowSelect?.value || 0);
+    indicatorText.textContent = `Generating ${hours}-hour forecast for ${stationSelect?.value || 'selected road'}…`;
+  }
+}
+
 function updateModelStatus(status) {
   if (!status) return;
   modelReady = Boolean(status.ready);
@@ -233,8 +246,10 @@ async function refreshForecast() {
   }
 
   forecastRequest?.abort();
-  forecastRequest = new AbortController();
-    setMessage('Generating RFC traffic classifications…');
+  const request = new AbortController();
+  forecastRequest = request;
+  setForecastLoading(true);
+  setMessage('Generating RFC traffic classifications…');
   try {
     const response = await fetch(root.dataset.forecastUrl, {
       method: 'POST',
@@ -244,7 +259,7 @@ async function refreshForecast() {
         prediction_date: dateSelect.value,
         forecast_window: Number(windowSelect.value),
       }),
-      signal: forecastRequest.signal,
+      signal: request.signal,
     });
     const payload = await response.json();
     updateModelStatus(payload.model_status);
@@ -259,6 +274,10 @@ async function refreshForecast() {
     if (error.name === 'AbortError') return;
     buildForecastTable([]);
     setMessage(error.message, 'error');
+  } finally {
+    if (forecastRequest === request) {
+      setForecastLoading(false);
+    }
   }
 }
 

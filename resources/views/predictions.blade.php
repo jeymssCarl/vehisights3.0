@@ -96,6 +96,11 @@
           <div class="fg"><label for="windowSel">Forecast Window</label><select id="windowSel"><option value="24">Next 24 Hours</option><option value="12">Next 12 Hours</option><option value="6">Next 6 Hours</option></select></div>
         </div>
 
+        <div class="forecast-loading" id="forecastLoading" role="status" aria-live="polite" hidden>
+          <span class="forecast-loading-spinner" aria-hidden="true"></span>
+          <span id="forecastLoadingText">Generating traffic forecast…</span>
+        </div>
+
         <div class="kpi-grid">
           <div class="kpi"><div class="kpi-label">Current Traffic</div><div class="kpi-value" id="kpiCurrent">—</div><div class="kpi-sub" id="kpiCurrentSub">Latest recorded PCU</div></div>
           <div class="kpi"><div class="kpi-label">Next Hour Classification</div><div class="kpi-value" id="kpiNext">—</div><div class="kpi-sub" id="kpiNextSub">Awaiting RFC result</div></div>

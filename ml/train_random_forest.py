@@ -5,6 +5,10 @@ import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
+from windows_runtime import install_windows_runtime_guards
+
+install_windows_runtime_guards()
+
 import joblib
 import numpy as np
 import sklearn
@@ -101,7 +105,7 @@ def build_classifier_pipeline():
         max_features="sqrt",
         class_weight="balanced_subsample",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=1,
     )
     return Pipeline([("features", preprocessor), ("model", classifier)])
 

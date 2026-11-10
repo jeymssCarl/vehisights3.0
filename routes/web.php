@@ -74,6 +74,7 @@ Route::middleware(['auth'])->group(function () {
 
     // AJAX endpoint for dashboard data (NO FLASH - loads data dynamically)
     Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->name('dashboard.data');
+    Route::post('/dashboard/live-sessions', [DashboardController::class, 'getLiveSessions'])->name('dashboard.live-sessions');
 
     Route::get('/live-traffic', function () {
         return view('live-traffic');

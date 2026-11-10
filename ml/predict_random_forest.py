@@ -3,6 +3,10 @@ import json
 import math
 from datetime import datetime, timedelta, timezone
 
+from windows_runtime import install_windows_runtime_guards
+
+install_windows_runtime_guards()
+
 import joblib
 
 

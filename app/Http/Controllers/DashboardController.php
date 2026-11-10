@@ -5,12 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\AutoSession;
 use App\Models\Camera;
 use App\Models\ManualCount;
+use App\Services\AutoSessionLifecycleService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    public function __construct(private readonly AutoSessionLifecycleService $sessionLifecycle)
+    {
+    }
+
     public function index(Request $request)
     {
         $startDate = $request->get('start_date', today()->format('Y-m-d'));
@@ -31,8 +36,20 @@ class DashboardController extends Controller
         return response()->json($this->buildDashboardData($startDate, $endDate));
     }
 
+    public function getLiveSessions()
+    {
+        $this->sessionLifecycle->synchronize();
+
+        return response()->json([
+            'active_sessions' => $this->activeSessions(),
+            'active_cameras' => Camera::query()->where('status', 'online')->count(),
+            'refreshed_at' => now()->toIso8601String(),
+        ]);
+    }
+
     private function buildDashboardData(string $startDate, string $endDate): array
     {
+        $this->sessionLifecycle->synchronize();
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
@@ -67,20 +84,7 @@ class DashboardController extends Controller
 
         // Active automatic camera sessions. A detail record is optional while
         // counting is still in progress and is finalized when the run stops.
-        $activeSessions = AutoSession::query()
-            ->with('detail')
-            ->where('status', 'active')
-            ->latest('start_time')
-            ->limit(5)
-            ->get()
-            ->map(function ($session) {
-                return [
-                    'code' => $session->session_code,
-                    'road' => $session->road_name ?: $session->location,
-                    'vc' => number_format($session->detail->vc_ratio ?? 0, 2),
-                    'los' => $session->detail->los ?? 'N/A',
-                ];
-            });
+        $activeSessions = $this->activeSessions();
 
         // Recent auto counts
         $recentAuto = AutoSession::with('detail')->where('status', 'ended')->whereHas('detail')->whereBetween('start_time', [$start, $end])->latest('end_time')->limit(10)->get()->map(function ($a) {
@@ -98,5 +102,22 @@ class DashboardController extends Controller
             'active_sessions' => $activeSessions,
             'recent_auto' => $recentAuto,
         ];
+    }
+
+    private function activeSessions()
+    {
+        return AutoSession::query()
+            ->with('detail')
+            ->where('status', 'active')
+            ->latest('start_time')
+            ->limit(5)
+            ->get()
+            ->map(fn (AutoSession $session) => [
+                'code' => $session->session_code,
+                'road' => $session->road_name ?: $session->location,
+                'vc' => number_format($session->detail?->vc_ratio ?? 0, 2),
+                'los' => $session->detail?->los ?? 'N/A',
+            ])
+            ->values();
     }
 }
