@@ -167,13 +167,33 @@ class ScheduleController extends Controller
             }
 
             $normalizedRoad = mb_strtolower(trim((string) $request->input('road_name')));
+            $normalizedBarangay = mb_strtolower(trim((string) $request->input('barangay')));
+            $requestedStartDate = $request->string('start_date')->toString();
+            $requestedEndDate = $request->filled('end_date')
+                ? $request->string('end_date')->toString()
+                : $requestedStartDate;
+
             $overlapExists = Schedule::query()
-                ->whereDate('start_date', $request->string('start_date'))
+                ->where('is_active', true)
+                ->whereDate('start_date', '<=', $requestedEndDate)
+                ->where(function ($query) use ($requestedStartDate) {
+                    $query->whereDate('end_date', '>=', $requestedStartDate)
+                        ->orWhere(function ($query) use ($requestedStartDate) {
+                            $query->whereNull('end_date')
+                                ->where(function ($query) use ($requestedStartDate) {
+                                    $query->where('recurrence', '!=', 'once')
+                                        ->orWhereDate('start_date', '>=', $requestedStartDate);
+                                });
+                        });
+                })
                 ->where('start_time', '<', $request->string('end_time'))
                 ->where('end_time', '>', $request->string('start_time'))
-                ->where(function ($query) use ($request, $normalizedRoad) {
+                ->where(function ($query) use ($request, $normalizedRoad, $normalizedBarangay) {
                     $query->where('camera_id', $request->integer('camera_id'))
-                        ->orWhereRaw('LOWER(TRIM(road_name)) = ?', [$normalizedRoad]);
+                        ->orWhere(function ($query) use ($normalizedRoad, $normalizedBarangay) {
+                            $query->whereRaw('LOWER(TRIM(road_name)) = ?', [$normalizedRoad])
+                                ->whereRaw("LOWER(TRIM(COALESCE(barangay, ''))) = ?", [$normalizedBarangay]);
+                        });
                 })
                 ->when($ignoredSchedule, fn ($query) => $query->where('id', '!=', $ignoredSchedule->id))
                 ->exists();
@@ -181,7 +201,7 @@ class ScheduleController extends Controller
             if ($overlapExists) {
                 $validator->errors()->add(
                     'start_time',
-                    'This station or camera already has a session scheduled during the selected date and time. Delete or adjust the existing schedule first.'
+                    'This camera or the same station and barangay already has an overlapping schedule. Choose another time, camera, or barangay.'
                 );
             }
         });

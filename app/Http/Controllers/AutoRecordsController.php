@@ -125,6 +125,64 @@ class AutoRecordsController extends Controller
         ]);
     }
 
+    public function destroySelected(Request $request, TrafficHistorySyncService $historySync)
+    {
+        $validated = $request->validate([
+            'session_ids' => 'required|array|min:1',
+            'session_ids.*' => 'required|integer|distinct|exists:auto_sessions,id',
+        ]);
+
+        $sessions = AutoSession::query()
+            ->with(['schedule', 'detail'])
+            ->whereIn('id', $validated['session_ids'])
+            ->whereIn('status', ['scheduled', 'ended'])
+            ->get();
+
+        if ($sessions->count() !== count($validated['session_ids'])) {
+            throw ValidationException::withMessages([
+                'session_ids' => 'Active sessions cannot be deleted. Refresh the page and select only scheduled or ended records.',
+            ]);
+        }
+
+        DB::transaction(function () use ($sessions, $historySync) {
+            foreach ($sessions as $session) {
+                $historySync->deleteAuto($session);
+
+                if ($session->status === 'scheduled') {
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->where('status', 'pending')
+                        ->update([
+                            'status' => 'failed',
+                            'completed_at' => now(),
+                            'error_message' => 'The scheduled session was cancelled from Auto Records.',
+                        ]);
+
+                    if ($session->schedule?->recurrence === 'once') {
+                        $session->schedule->update(['is_active' => false]);
+                    }
+                }
+
+                $session->delete();
+            }
+        });
+
+        ActivityNotificationService::send(
+            'Automatic records deleted',
+            auth()->user()->name.' deleted '.$sessions->count().' selected automatic record(s).',
+            '/auto-records',
+            'auto_session',
+            'deleted'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $sessions->count().' selected automatic record(s) deleted successfully',
+            'deleted_count' => $sessions->count(),
+            'refresh_dashboard' => true,
+        ]);
+    }
+
     private function recordsQuery()
     {
         return AutoSession::query()

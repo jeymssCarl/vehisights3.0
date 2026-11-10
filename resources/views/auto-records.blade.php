@@ -68,16 +68,19 @@
             <button type="button" id="todayFilterBtn" class="btn-today-filter">Today</button>
           </div>
         </div>
-        <button id="deleteAllBtn" class="btn-delete-all" type="button" disabled title="No records to delete">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-          Delete All
-        </button>
+        <div class="record-delete-actions">
+          <button id="bulkDeleteBtn" class="btn-delete-all" type="button" disabled title="Select records to delete">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            <span id="bulkDeleteLabel">Delete Selected</span><span id="selectedCount" class="selected-count">0</span>
+          </button>
+        </div>
       </div>
 
       <div class="table-wrapper">
         <table class="auto-table">
           <thead>
             <tr>
+              <th class="selection-column"><input type="checkbox" id="selectAllVisible" class="record-checkbox" aria-label="Select all visible records"></th>
               <th>Session ID</th>
               <th>Camera Name</th>
               <th>IP Address</th>
@@ -177,21 +180,6 @@
       <div class="confirm-buttons">
         <button class="btn-secondary" id="confirmCancelBtn">Cancel</button>
         <button class="btn-primary" id="confirmOkBtn">Confirm</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- CONFIRM DELETE ALL MODAL -->
-<div id="confirmDeleteAllModal" class="modal-overlay confirm-modal">
-  <div class="modal">
-    <div class="modal-body">
-      <div class="confirm-icon"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
-      <div class="confirm-title">Delete All Records?</div>
-      <div class="confirm-message">Are you sure you want to delete ALL auto records? This action cannot be undone.</div>
-      <div class="confirm-buttons">
-        <button class="btn-secondary" id="confirmDeleteAllCancelBtn">Cancel</button>
-        <button class="btn-primary" id="confirmDeleteAllOkBtn" style="background: var(--red);">Delete All</button>
       </div>
     </div>
   </div>

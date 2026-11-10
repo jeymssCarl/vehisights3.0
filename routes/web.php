@@ -92,6 +92,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/auto-records', [AutoRecordsController::class, 'index'])->name('auto-records');
     Route::get('/auto-records/data', [AutoRecordsController::class, 'data'])->name('auto-records.data');
     Route::delete('/auto-sessions/delete-all', [AutoRecordsController::class, 'destroyAll'])->name('auto-sessions.delete-all');
+    Route::delete('/auto-sessions/delete-selected', [AutoRecordsController::class, 'destroySelected'])->name('auto-sessions.delete-selected');
     Route::post('/auto-sessions/start', [AutoSessionIngestController::class, 'start'])->name('auto-sessions.start');
     Route::post('/auto-sessions/{autoSession}/stop', [AutoSessionIngestController::class, 'stop'])->name('auto-sessions.stop');
     Route::put('/auto-sessions/{autoSession}', [AutoRecordsController::class, 'update'])->name('auto-sessions.update');

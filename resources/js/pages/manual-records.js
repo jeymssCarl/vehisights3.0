@@ -70,21 +70,26 @@ const VEHICLE_NAMES = [
   "Tricycle"
 ];
 
-function updateDeleteAllButton(hasVisibleRecords) {
-  const deleteAllBtn = document.getElementById('deleteAllBtn');
-  deleteAllBtn.disabled = !hasVisibleRecords;
-  deleteAllBtn.title = hasVisibleRecords ? 'Delete all records' : 'No records to delete';
-}
-
 function updateSelectionControls() {
+  const selectableIds = sessionsData.map(session => Number(session.id));
+  const selectableIdSet = new Set(selectableIds);
+  selectedSessionIds.forEach(id => {
+    if (!selectableIdSet.has(id)) selectedSessionIds.delete(id);
+  });
+
   const selectedCount = selectedSessionIds.size;
-  const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const bulkDeleteLabel = document.getElementById('bulkDeleteLabel');
   const countBadge = document.getElementById('selectedCount');
   const selectAll = document.getElementById('selectAllVisible');
   const selectedVisibleCount = visibleSessionIds.filter(id => selectedSessionIds.has(id)).length;
+  const allRecordsSelected = selectableIds.length > 0 && selectableIds.every(id => selectedSessionIds.has(id));
 
-  deleteSelectedBtn.disabled = selectedCount === 0;
-  deleteSelectedBtn.title = selectedCount ? `Delete ${selectedCount} selected record(s)` : 'Select records to delete';
+  bulkDeleteBtn.disabled = selectedCount === 0;
+  bulkDeleteLabel.textContent = allRecordsSelected ? 'Delete All' : 'Delete Selected';
+  bulkDeleteBtn.title = selectedCount
+    ? `${allRecordsSelected ? 'Delete all' : 'Delete'} ${selectedCount} record${selectedCount === 1 ? '' : 's'}`
+    : 'Select records to delete';
   countBadge.textContent = selectedCount;
   selectAll.disabled = visibleSessionIds.length === 0;
   selectAll.checked = visibleSessionIds.length > 0 && selectedVisibleCount === visibleSessionIds.length;
@@ -101,7 +106,6 @@ function renderTable() {
   
   const tbody = document.getElementById('sessionsTableBody');
   visibleSessionIds = filtered.map(session => Number(session.id));
-  updateDeleteAllButton(filtered.length > 0);
   updateSelectionControls();
 
   if (filtered.length === 0) {
@@ -275,8 +279,8 @@ document.getElementById('edit_has_median').addEventListener('change', updateEdit
 let pendingAction = null;
 let pendingActionRunning = false;
 function setConfirmLoading(isDeleteAll, loading, text = 'Deleting…') {
-  const button = document.getElementById(isDeleteAll ? 'confirmDeleteAllOkBtn' : 'confirmOkBtn');
-  const cancel = document.getElementById(isDeleteAll ? 'confirmDeleteAllCancelBtn' : 'confirmCancelBtn');
+  const button = document.getElementById('confirmOkBtn');
+  const cancel = document.getElementById('confirmCancelBtn');
   if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent.trim();
   button.disabled = loading;
   cancel.disabled = loading;
@@ -284,17 +288,15 @@ function setConfirmLoading(isDeleteAll, loading, text = 'Deleting…') {
   button.textContent = loading ? text : button.dataset.defaultLabel;
   pendingActionRunning = loading;
 }
-function showConfirmModal(title, message, onConfirm, isDeleteAll = false) {
-  const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
+function showConfirmModal(title, message, onConfirm) {
   document.getElementById('confirmTitle').innerText = title;
   document.getElementById('confirmMessage').innerHTML = message;
   pendingAction = onConfirm;
-  document.getElementById(modalId).classList.add('active');
+  document.getElementById('confirmModal').classList.add('active');
 }
-function closeConfirmModal(isDeleteAll = false) {
+function closeConfirmModal() {
   if (pendingActionRunning) return;
-  const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
-  document.getElementById(modalId).classList.remove('active');
+  document.getElementById('confirmModal').classList.remove('active');
   pendingAction = null;
 }
 
@@ -334,53 +336,17 @@ async function handleDelete(e) {
   );
 }
 
-async function handleDeleteAll() {
-  if (document.getElementById('deleteAllBtn').disabled) return;
-
-  showConfirmModal(
-    'Delete All Records?',
-    'Are you sure you want to delete ALL manual records? This action cannot be undone.',
-    async () => {
-      setConfirmLoading(true, true, 'Deleting all…');
-      document.getElementById('deleteAllBtn').disabled = true;
-      try {
-        const response = await fetch('/sessions/delete-all', {
-          method: 'DELETE',
-          headers: {
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-        });
-        const result = await response.json();
-        if (result.success) {
-          window.location.reload();
-        } else {
-          setConfirmLoading(true, false);
-          document.getElementById('deleteAllBtn').disabled = false;
-          window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: result.message || 'The manual records could not be deleted.' });
-        }
-      } catch (err) {
-        console.error(err);
-        setConfirmLoading(true, false);
-        document.getElementById('deleteAllBtn').disabled = false;
-        window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: 'The manual records could not be deleted. Check your connection and try again.' });
-      }
-      if (!pendingActionRunning) closeConfirmModal(true);
-    },
-    true
-  );
-}
-
 async function handleDeleteSelected() {
   const ids = Array.from(selectedSessionIds);
   if (!ids.length) return;
+  const selectableIds = sessionsData.map(session => Number(session.id));
+  const allRecordsSelected = selectableIds.length > 0 && selectableIds.every(id => selectedSessionIds.has(id));
 
   showConfirmModal(
-    'Delete Selected Records?',
-    `Delete <strong>${ids.length}</strong> selected manual record${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
+    allRecordsSelected ? 'Delete All Records?' : 'Delete Selected Records?',
+    `Delete <strong>${ids.length}</strong> ${allRecordsSelected ? 'manual record' : 'selected manual record'}${ids.length === 1 ? '' : 's'}? This action cannot be undone.`,
     async () => {
-      setConfirmLoading(false, true, `Deleting ${ids.length}…`);
+      setConfirmLoading(false, true, allRecordsSelected ? 'Deleting all…' : `Deleting ${ids.length}…`);
       try {
         const response = await fetch('/sessions/delete-selected', {
           method: 'DELETE',
@@ -550,8 +516,7 @@ searchInput.addEventListener('input', () => {
   syncFilterStateToUrl();
   renderTable();
 });
-document.getElementById('deleteAllBtn').addEventListener('click', handleDeleteAll);
-document.getElementById('deleteSelectedBtn').addEventListener('click', handleDeleteSelected);
+document.getElementById('bulkDeleteBtn').addEventListener('click', handleDeleteSelected);
 document.getElementById('selectAllVisible').addEventListener('change', event => {
   visibleSessionIds.forEach(id => {
     if (event.currentTarget.checked) selectedSessionIds.add(id);
@@ -669,15 +634,6 @@ document.getElementById('confirmOkBtn').addEventListener('click', () => {
 });
 document.getElementById('confirmModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('confirmModal')) closeConfirmModal();
-});
-
-// Delete All Modal handlers
-document.getElementById('confirmDeleteAllCancelBtn').addEventListener('click', () => closeConfirmModal(true));
-document.getElementById('confirmDeleteAllOkBtn').addEventListener('click', () => {
-  if (pendingAction && !pendingActionRunning) pendingAction();
-});
-document.getElementById('confirmDeleteAllModal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('confirmDeleteAllModal')) closeConfirmModal(true);
 });
 
 const detailsModal = document.getElementById('detailsModal');

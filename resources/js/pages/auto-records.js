@@ -12,6 +12,8 @@ toggle.addEventListener('click', () => {
 const pageData = JSON.parse(document.getElementById('page-data').textContent);
 let sessionsData = pageData.sessions;
 let activeDetailsSessionId = null;
+const selectedSessionIds = new Set();
+let visibleSelectableIds = [];
 const urlState = new URLSearchParams(window.location.search);
 const isValidDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
 
@@ -86,10 +88,32 @@ const VEHICLE_NAMES = [
   "Tricycle"
 ];
 
-function updateDeleteAllButton(hasVisibleRecords) {
-  const deleteAllBtn = document.getElementById('deleteAllBtn');
-  deleteAllBtn.disabled = !hasVisibleRecords;
-  deleteAllBtn.title = hasVisibleRecords ? 'Delete all records' : 'No records to delete';
+function isBulkDeletable(session) {
+  return session.status === 'scheduled' || session.status === 'ended';
+}
+
+function updateSelectionControls() {
+  const selectableIds = sessionsData.filter(isBulkDeletable).map(session => Number(session.id));
+  const selectableIdSet = new Set(selectableIds);
+  selectedSessionIds.forEach(id => {
+    if (!selectableIdSet.has(id)) selectedSessionIds.delete(id);
+  });
+
+  const selectedCount = selectedSessionIds.size;
+  const selectedVisibleCount = visibleSelectableIds.filter(id => selectedSessionIds.has(id)).length;
+  const allRecordsSelected = selectableIds.length > 0 && selectableIds.every(id => selectedSessionIds.has(id));
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const selectAll = document.getElementById('selectAllVisible');
+
+  bulkDeleteBtn.disabled = selectedCount === 0;
+  document.getElementById('bulkDeleteLabel').textContent = allRecordsSelected ? 'Delete All' : 'Delete Selected';
+  document.getElementById('selectedCount').textContent = selectedCount;
+  bulkDeleteBtn.title = selectedCount
+    ? `${allRecordsSelected ? 'Delete all' : 'Delete'} ${selectedCount} record${selectedCount === 1 ? '' : 's'}`
+    : 'Select records to delete';
+  selectAll.disabled = visibleSelectableIds.length === 0;
+  selectAll.checked = visibleSelectableIds.length > 0 && selectedVisibleCount === visibleSelectableIds.length;
+  selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleSelectableIds.length;
 }
 
 function renderTable() {
@@ -101,16 +125,19 @@ function renderTable() {
   });
   
   const tbody = document.getElementById('autoTableBody');
-  updateDeleteAllButton(filtered.some(session => session.status === 'ended'));
+  visibleSelectableIds = filtered.filter(isBulkDeletable).map(session => Number(session.id));
+  updateSelectionControls();
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-message">No auto records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-message">No auto records found</td></tr>';
     return;
   }
   
   tbody.innerHTML = filtered.map(s => {
     const dateTime = formatDateTime(s.start_time);
     const statusLabel = s.status === 'scheduled' ? 'Scheduled' : (s.status === 'active' ? 'Active' : 'Ended');
+    const selectable = isBulkDeletable(s);
+    const isSelected = selectedSessionIds.has(Number(s.id));
     const actions = s.status === 'scheduled'
       ? `<span class="scheduled-record-label">Queued</span>
          <div class="action-icon cancel-scheduled" data-id="${s.id}" title="Cancel Scheduled Session">
@@ -125,7 +152,10 @@ function renderTable() {
              <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
            </div>`);
     return `
-      <tr class="record-row" data-session-id="${s.id}" title="View session details">
+      <tr class="record-row ${isSelected ? 'is-selected' : ''}" data-session-id="${s.id}" title="View session details">
+        <td class="selection-column" onclick="event.stopPropagation()">
+          <input type="checkbox" class="record-checkbox row-select-checkbox" data-id="${s.id}" aria-label="Select session ${escapeHtml(s.session_code)}" ${isSelected ? 'checked' : ''} ${selectable ? '' : 'disabled title="Active sessions cannot be deleted"'}>
+        </td>
         <td style="font-family:'DM Mono',monospace;">${escapeHtml(s.session_code)}</td>
         <td style="font-weight:500;">${escapeHtml(s.camera_name)}</td>
         <td style="font-family:'DM Mono',monospace;">${escapeHtml(s.ip_address)}</td>
@@ -151,7 +181,7 @@ function attachRowClickEvents() {
 }
 
 function rowClickHandler(e) {
-  if (e.target.closest('.action-icon')) return;
+  if (e.target.closest('.action-icon, .record-checkbox')) return;
   const session = sessionsData.find(s => Number(s.id) === Number(e.currentTarget.dataset.sessionId));
   if (session) showSessionDetails(session);
 }
@@ -168,6 +198,15 @@ function attachActionEvents() {
   document.querySelectorAll('.action-icon.cancel-scheduled').forEach(btn => {
     btn.removeEventListener('click', handleCancelScheduled);
     btn.addEventListener('click', handleCancelScheduled);
+  });
+  document.querySelectorAll('.row-select-checkbox:not(:disabled)').forEach(checkbox => {
+    checkbox.addEventListener('change', event => {
+      const id = Number(event.currentTarget.dataset.id);
+      if (event.currentTarget.checked) selectedSessionIds.add(id);
+      else selectedSessionIds.delete(id);
+      event.currentTarget.closest('tr')?.classList.toggle('is-selected', event.currentTarget.checked);
+      updateSelectionControls();
+    });
   });
 }
 
@@ -231,8 +270,8 @@ function handleEdit(e) {
 let pendingAction = null;
 let pendingActionRunning = false;
 function setConfirmLoading(isDeleteAll, loading, text = 'Deleting…') {
-  const button = document.getElementById(isDeleteAll ? 'confirmDeleteAllOkBtn' : 'confirmOkBtn');
-  const cancel = document.getElementById(isDeleteAll ? 'confirmDeleteAllCancelBtn' : 'confirmCancelBtn');
+  const button = document.getElementById('confirmOkBtn');
+  const cancel = document.getElementById('confirmCancelBtn');
   if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent.trim();
   button.disabled = loading;
   cancel.disabled = loading;
@@ -240,17 +279,15 @@ function setConfirmLoading(isDeleteAll, loading, text = 'Deleting…') {
   button.textContent = loading ? text : button.dataset.defaultLabel;
   pendingActionRunning = loading;
 }
-function showConfirmModal(title, message, onConfirm, isDeleteAll = false) {
-  const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
+function showConfirmModal(title, message, onConfirm) {
   document.getElementById('confirmTitle').innerText = title;
   document.getElementById('confirmMessage').innerHTML = message;
   pendingAction = onConfirm;
-  document.getElementById(modalId).classList.add('active');
+  document.getElementById('confirmModal').classList.add('active');
 }
-function closeConfirmModal(isDeleteAll = false) {
+function closeConfirmModal() {
   if (pendingActionRunning) return;
-  const modalId = isDeleteAll ? 'confirmDeleteAllModal' : 'confirmModal';
-  document.getElementById(modalId).classList.remove('active');
+  document.getElementById('confirmModal').classList.remove('active');
   pendingAction = null;
 }
 
@@ -289,41 +326,44 @@ async function handleDelete(e) {
   );
 }
 
-async function handleDeleteAll() {
-  if (document.getElementById('deleteAllBtn').disabled) return;
+async function handleDeleteSelected() {
+  const ids = Array.from(selectedSessionIds);
+  if (!ids.length) return;
+  const selectableIds = sessionsData.filter(isBulkDeletable).map(session => Number(session.id));
+  const allRecordsSelected = selectableIds.length > 0 && selectableIds.every(id => selectedSessionIds.has(id));
 
   showConfirmModal(
-    'Delete All Records?',
-    'Are you sure you want to delete ALL auto records? This action cannot be undone.',
+    allRecordsSelected ? 'Delete All Records?' : 'Delete Selected Records?',
+    `Delete <strong>${ids.length}</strong> ${allRecordsSelected ? 'automatic record' : 'selected automatic record'}${ids.length === 1 ? '' : 's'}? Active sessions are protected and this action cannot be undone.`,
     async () => {
-      setConfirmLoading(true, true, 'Deleting all…');
-      document.getElementById('deleteAllBtn').disabled = true;
+      setConfirmLoading(false, true, allRecordsSelected ? 'Deleting all…' : `Deleting ${ids.length}…`);
       try {
-        const response = await fetch('/auto-sessions/delete-all', {
+        const response = await fetch('/auto-sessions/delete-selected', {
           method: 'DELETE',
           headers: {
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
             'Accept': 'application/json',
             'Content-Type': 'application/json'
           },
+          body: JSON.stringify({ session_ids: ids })
         });
         const result = await response.json();
-        if (result.success) {
-          location.reload();
+        if (response.ok && result.success) {
+          selectedSessionIds.clear();
+          await refreshAutoRecords();
+          setConfirmLoading(false, false);
+          closeConfirmModal();
         } else {
-          setConfirmLoading(true, false);
-          document.getElementById('deleteAllBtn').disabled = false;
-          window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: result.message || 'The automatic records could not be deleted.' });
+          setConfirmLoading(false, false);
+          window.VehiSightsUI.showNotice({ title: 'Bulk delete failed', message: result.message || 'The selected automatic records could not be deleted.' });
         }
       } catch (err) {
         console.error(err);
-        setConfirmLoading(true, false);
-        document.getElementById('deleteAllBtn').disabled = false;
-        window.VehiSightsUI.showNotice({ title: 'Delete all failed', message: 'The automatic records could not be deleted. Check your connection and try again.' });
+        setConfirmLoading(false, false);
+        window.VehiSightsUI.showNotice({ title: 'Bulk delete failed', message: 'The selected automatic records could not be deleted. Check your connection and try again.' });
       }
-      if (!pendingActionRunning) closeConfirmModal(true);
-    },
-    true
+      if (!pendingActionRunning) closeConfirmModal();
+    }
   );
 }
 
@@ -498,7 +538,14 @@ searchInput.addEventListener('input', () => {
   syncFilterStateToUrl();
   renderTable();
 });
-document.getElementById('deleteAllBtn').addEventListener('click', handleDeleteAll);
+document.getElementById('bulkDeleteBtn').addEventListener('click', handleDeleteSelected);
+document.getElementById('selectAllVisible').addEventListener('change', event => {
+  visibleSelectableIds.forEach(id => {
+    if (event.currentTarget.checked) selectedSessionIds.add(id);
+    else selectedSessionIds.delete(id);
+  });
+  renderTable();
+});
 renderTable();
 
 // Edit modal
@@ -551,15 +598,6 @@ document.getElementById('confirmOkBtn').addEventListener('click', () => {
 });
 document.getElementById('confirmModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('confirmModal')) closeConfirmModal();
-});
-
-// Delete All Modal handlers
-document.getElementById('confirmDeleteAllCancelBtn').addEventListener('click', () => closeConfirmModal(true));
-document.getElementById('confirmDeleteAllOkBtn').addEventListener('click', () => {
-  if (pendingAction && !pendingActionRunning) pendingAction();
-});
-document.getElementById('confirmDeleteAllModal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('confirmDeleteAllModal')) closeConfirmModal(true);
 });
 
 const detailsModal = document.getElementById('detailsModal');
