@@ -42,10 +42,13 @@ class AutoSessionIngestController extends Controller
             })
             ->when(
                 ! $request->user()->isAdmin(),
-                fn ($query) => $query->whereHas(
-                    'camera',
-                    fn ($cameraQuery) => $cameraQuery->where('created_by', $request->user()->id)
-                )
+                fn ($query) => $query->where(function ($query) use ($request) {
+                    $query->where('created_by', $request->user()->id)
+                        ->orWhereHas(
+                            'camera',
+                            fn ($cameraQuery) => $cameraQuery->where('created_by', $request->user()->id)
+                        );
+                })
             )
             ->orderBy('start_date')
             ->orderBy('start_time')

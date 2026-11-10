@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -41,6 +42,10 @@ class AutoSessionRealtimeContractTest extends TestCase
 
     public function test_website_start_and_live_data_require_a_login(): void
     {
+        // This test targets authentication. CSRF behavior is covered by Laravel's
+        // web middleware and would otherwise short-circuit these POSTs with 419.
+        $this->withoutMiddleware(VerifyCsrfToken::class);
+
         $this->postJson('/auto-sessions/start', ['schedule_id' => 999999])
             ->assertUnauthorized();
 

@@ -39,7 +39,7 @@ class TokenAuthController extends Controller
             ])->plainTextToken,
             'user' => [
                 'id' => $user->id,
-                'name' => $user->full_name,
+                'name' => trim((string) $user->full_name) ?: $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
             ],

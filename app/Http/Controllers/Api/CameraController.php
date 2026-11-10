@@ -13,7 +13,18 @@ class CameraController extends Controller
     public function index(Request $request): JsonResponse
     {
         $cameras = Camera::query()
-            ->where('created_by', $request->user()->id)
+            ->when(
+                ! $request->user()->isAdmin(),
+                fn ($query) => $query->where(function ($query) use ($request) {
+                    $query->where('created_by', $request->user()->id)
+                        ->orWhereHas(
+                            'schedules',
+                            fn ($scheduleQuery) => $scheduleQuery
+                                ->where('created_by', $request->user()->id)
+                                ->where('is_active', true)
+                        );
+                })
+            )
             ->orderBy('name')
             ->get()
             ->map(fn (Camera $camera) => $this->cameraData($camera));
