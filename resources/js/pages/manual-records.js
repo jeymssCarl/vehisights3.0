@@ -80,7 +80,6 @@ function updateSelectionControls() {
   const selectedCount = selectedSessionIds.size;
   const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
   const bulkDeleteLabel = document.getElementById('bulkDeleteLabel');
-  const countBadge = document.getElementById('selectedCount');
   const selectAll = document.getElementById('selectAllVisible');
   const selectedVisibleCount = visibleSessionIds.filter(id => selectedSessionIds.has(id)).length;
   const allRecordsSelected = selectableIds.length > 0 && selectableIds.every(id => selectedSessionIds.has(id));
@@ -90,7 +89,6 @@ function updateSelectionControls() {
   bulkDeleteBtn.title = selectedCount
     ? `${allRecordsSelected ? 'Delete all' : 'Delete'} ${selectedCount} record${selectedCount === 1 ? '' : 's'}`
     : 'Select records to delete';
-  countBadge.textContent = selectedCount;
   selectAll.disabled = visibleSessionIds.length === 0;
   selectAll.checked = visibleSessionIds.length > 0 && selectedVisibleCount === visibleSessionIds.length;
   selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleSessionIds.length;

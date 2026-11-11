@@ -107,7 +107,6 @@ function updateSelectionControls() {
 
   bulkDeleteBtn.disabled = selectedCount === 0;
   document.getElementById('bulkDeleteLabel').textContent = allRecordsSelected ? 'Delete All' : 'Delete Selected';
-  document.getElementById('selectedCount').textContent = selectedCount;
   bulkDeleteBtn.title = selectedCount
     ? `${allRecordsSelected ? 'Delete all' : 'Delete'} ${selectedCount} record${selectedCount === 1 ? '' : 's'}`
     : 'Select records to delete';
@@ -144,7 +143,10 @@ function renderTable() {
            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
          </div>`
       : (s.status === 'active'
-        ? '<span class="live-record-label">Live</span>'
+        ? `<span class="live-record-label">Live</span>
+           <div class="action-icon stop" data-id="${s.id}" title="Stop Active Session" role="button" aria-label="Stop active session ${escapeHtml(s.session_code)}">
+             <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+           </div>`
         : `<div class="action-icon edit" data-id="${s.id}" title="Edit Session">
              <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
            </div>
@@ -199,6 +201,10 @@ function attachActionEvents() {
     btn.removeEventListener('click', handleCancelScheduled);
     btn.addEventListener('click', handleCancelScheduled);
   });
+  document.querySelectorAll('.action-icon.stop').forEach(btn => {
+    btn.removeEventListener('click', handleStop);
+    btn.addEventListener('click', handleStop);
+  });
   document.querySelectorAll('.row-select-checkbox:not(:disabled)').forEach(checkbox => {
     checkbox.addEventListener('change', event => {
       const id = Number(event.currentTarget.dataset.id);
@@ -208,6 +214,49 @@ function attachActionEvents() {
       updateSelectionControls();
     });
   });
+}
+
+function handleStop(e) {
+  e.stopPropagation();
+  const id = Number(e.currentTarget.dataset.id);
+  const session = sessionsData.find(item => Number(item.id) === id);
+  if (!session || session.status !== 'active') return;
+
+  showConfirmModal(
+    'Stop Active Session?',
+    `Stop session <strong>${escapeHtml(session.session_code)}</strong> now? Its latest vehicle counts will be saved as the final record, and it can be deleted afterward.`,
+    async () => {
+      setConfirmLoading(false, true, 'Stopping…');
+
+      try {
+        const response = await fetch(`/auto-sessions/${id}/stop`, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({})
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'The active session could not be stopped.');
+        }
+
+        setConfirmLoading(false, false);
+        closeConfirmModal();
+        await refreshAutoRecords();
+      } catch (error) {
+        console.error(error);
+        setConfirmLoading(false, false);
+        window.VehiSightsUI.showNotice({
+          title: 'Unable to stop session',
+          message: error.message || 'The active session could not be stopped. Check your connection and try again.'
+        });
+      }
+    }
+  );
 }
 
 function handleCancelScheduled(e) {

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Camera;
+use App\Models\AutoSession;
+use App\Models\AutoSessionDetail;
 use App\Models\Schedule;
 use App\Models\ScheduleLog;
 use App\Services\ActivityNotificationService;
@@ -27,15 +29,64 @@ class ScheduleController extends Controller
     {
         $validated = $this->validateSchedule($request);
 
-        $schedule = DB::transaction(function () use ($validated, $request) {
-            $schedule = Schedule::create($this->schedulePayload($validated, $request));
+        [$schedule, $autoSession] = DB::transaction(function () use ($validated, $request) {
+            $schedule = Schedule::create($this->schedulePayload($validated, $request))->load('camera');
+
+            $scheduledStart = Carbon::parse(
+                $schedule->start_date->format('Y-m-d').' '.$schedule->start_time,
+                'Asia/Manila'
+            )->utc();
+            $scheduledEnd = Carbon::parse(
+                ($schedule->end_date ?: $schedule->start_date)->format('Y-m-d').' '.$schedule->end_time,
+                'Asia/Manila'
+            )->utc();
+            $status = now()->gte($scheduledStart) ? 'active' : 'scheduled';
+            $direction = collect([$schedule->direction_from, $schedule->direction_to])
+                ->filter(fn ($value) => filled($value))
+                ->implode(' → ');
+
+            $autoSession = AutoSession::create([
+                'schedule_id' => $schedule->id,
+                'camera_id' => $schedule->camera->id,
+                'session_code' => 'A-'.strtoupper(uniqid()),
+                'camera_name' => $schedule->camera->name,
+                'ip_address' => $schedule->camera->ip_address,
+                'location' => $schedule->road_name ?: $schedule->camera->location,
+                'road_name' => $schedule->road_name,
+                'barangay' => $schedule->barangay,
+                'city' => $schedule->city,
+                'direction' => $direction ?: null,
+                'day_classification' => $schedule->day_classification,
+                'lanes' => $schedule->lanes,
+                'has_median' => $schedule->has_median,
+                'base_capacity_per_lane' => $schedule->base_capacity_per_lane,
+                'start_time' => $scheduledStart,
+                'end_time' => $scheduledEnd,
+                'status' => $status,
+                'created_by' => Auth::id(),
+            ]);
+
+            AutoSessionDetail::create([
+                'auto_session_id' => $autoSession->id,
+                'total_pcu' => 0,
+                'vc_ratio' => 0,
+                'los' => 'A',
+                'counts' => array_fill(0, 8, 0),
+                'pcu_totals' => array_fill(0, 8, 0),
+                'source' => 'auto',
+            ]);
 
             ScheduleLog::create([
                 'schedule_id' => $schedule->id,
-                'status' => 'pending',
+                'auto_session_id' => $autoSession->id,
+                'status' => $status === 'active' ? 'running' : 'pending',
+                'started_at' => $status === 'active' ? $scheduledStart : null,
             ]);
 
-            return $schedule->load('camera');
+            return [
+                $schedule,
+                $autoSession->load(['schedule', 'camera', 'detail']),
+            ];
         });
 
         ActivityNotificationService::send('Schedule added', Auth::user()->name.' scheduled automatic counting for '.$schedule->road_name.'.', '/schedules', 'schedule', 'created', $schedule->id);
@@ -44,6 +95,7 @@ class ScheduleController extends Controller
             'success' => true,
             'message' => 'Automatic counting schedule created and queued for the camera.',
             'schedule' => $schedule,
+            'auto_session' => $autoSession,
         ]);
     }
 

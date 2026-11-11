@@ -290,18 +290,24 @@ form.addEventListener('submit', async event => {
       throw new Error(firstErrorMessage(result, 'The schedule could not be created.'));
     }
 
-    const startResponse = await fetch('/auto-sessions/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, Accept: 'application/json' },
-      body: JSON.stringify({
-        schedule_id: result.schedule.id,
-        start_time: toManilaIsoDateTime(payload.start_date, payload.start_time),
-      }),
-    });
-    const startResult = await startResponse.json();
+    let startResult = { success: true, auto_session: result.auto_session };
 
-    if (!startResponse.ok || !startResult.success) {
-      throw new Error(firstErrorMessage(startResult, 'The schedule was saved, but its automatic session could not be started.'));
+    // Backward-compatible fallback for a server that has not yet deployed the
+    // atomic schedule + automatic-session response.
+    if (!startResult.auto_session) {
+      const startResponse = await fetch('/auto-sessions/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, Accept: 'application/json' },
+        body: JSON.stringify({
+          schedule_id: result.schedule.id,
+          start_time: toManilaIsoDateTime(payload.start_date, payload.start_time),
+        }),
+      });
+      startResult = await startResponse.json();
+
+      if (!startResponse.ok || !startResult.success) {
+        throw new Error(firstErrorMessage(startResult, 'The schedule was saved, but its automatic session could not be started.'));
+      }
     }
 
     const isScheduled = startResult.auto_session?.status === 'scheduled';
