@@ -28,7 +28,7 @@ class AutoRecordsController extends Controller
         return response()->json([
             'success' => true,
             'sessions' => $this->recordsQuery()->get(),
-        ]);
+        ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 
     public function update(Request $request, AutoSession $autoSession, TrafficHistorySyncService $historySync)

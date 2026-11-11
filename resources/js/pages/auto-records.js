@@ -667,6 +667,7 @@ async function refreshAutoRecords() {
   try {
     const response = await fetch('/auto-records/data', {
       headers: { Accept: 'application/json' },
+      cache: 'no-store',
     });
 
     if (!response.ok) {
