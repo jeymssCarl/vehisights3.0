@@ -134,4 +134,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 refreshLiveSessions();
-window.setInterval(refreshLiveSessions, 3000);
+window.setInterval(refreshLiveSessions, 1000);

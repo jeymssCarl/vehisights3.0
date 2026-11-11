@@ -17,8 +17,9 @@ class AutoRecordsController extends Controller
     {
         $this->closeExpiredSessions();
         $sessions = $this->recordsQuery()->get();
+        $today = Carbon::now('Asia/Manila')->toDateString();
 
-        return view('auto-records', compact('sessions'));
+        return view('auto-records', compact('sessions', 'today'));
     }
 
     public function data()
@@ -74,22 +75,7 @@ class AutoRecordsController extends Controller
 
         DB::transaction(function () use ($autoSession, $historySync) {
             $historySync->deleteAuto($autoSession);
-
-            if ($autoSession->status === 'scheduled') {
-                ScheduleLog::query()
-                    ->where('auto_session_id', $autoSession->id)
-                    ->where('status', 'pending')
-                    ->update([
-                        'status' => 'failed',
-                        'completed_at' => now(),
-                        'error_message' => 'The scheduled session was cancelled from Auto Records.',
-                    ]);
-
-                if ($autoSession->schedule?->recurrence === 'once') {
-                    $autoSession->schedule->update(['is_active' => false]);
-                }
-            }
-
+            $this->retireDeletedSession($autoSession);
             $autoSession->delete();
         });
 
@@ -104,14 +90,20 @@ class AutoRecordsController extends Controller
 
     public function destroyAll(TrafficHistorySyncService $historySync)
     {
-        $deletedCount = AutoSession::query()->where('status', 'ended')->whereHas('detail')->count();
+        $sessions = AutoSession::query()
+            ->with(['schedule', 'detail'])
+            ->whereIn('status', ['scheduled', 'ended'])
+            ->get();
+        $deletedCount = $sessions->count();
+
         DB::transaction(function () use ($historySync) {
             AutoSession::query()
-                ->where('status', 'ended')
-                ->whereHas('detail')
+                ->with(['schedule', 'detail'])
+                ->whereIn('status', ['scheduled', 'ended'])
                 ->get()
                 ->each(function (AutoSession $session) use ($historySync) {
                     $historySync->deleteAuto($session);
+                    $this->retireDeletedSession($session);
                     $session->delete();
                 });
         });
@@ -147,22 +139,7 @@ class AutoRecordsController extends Controller
         DB::transaction(function () use ($sessions, $historySync) {
             foreach ($sessions as $session) {
                 $historySync->deleteAuto($session);
-
-                if ($session->status === 'scheduled') {
-                    ScheduleLog::query()
-                        ->where('auto_session_id', $session->id)
-                        ->where('status', 'pending')
-                        ->update([
-                            'status' => 'failed',
-                            'completed_at' => now(),
-                            'error_message' => 'The scheduled session was cancelled from Auto Records.',
-                        ]);
-
-                    if ($session->schedule?->recurrence === 'once') {
-                        $session->schedule->update(['is_active' => false]);
-                    }
-                }
-
+                $this->retireDeletedSession($session);
                 $session->delete();
             }
         });
@@ -188,9 +165,30 @@ class AutoRecordsController extends Controller
         return AutoSession::query()
             ->with(['detail', 'schedule', 'camera', 'user'])
             ->whereIn('status', ['scheduled', 'active', 'ended'])
-            ->whereHas('detail')
             ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END")
             ->orderByDesc('start_time');
+    }
+
+    private function retireDeletedSession(AutoSession $session): void
+    {
+        if ($session->status === 'scheduled') {
+            ScheduleLog::query()
+                ->where('auto_session_id', $session->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'failed',
+                    'completed_at' => now(),
+                    'error_message' => 'The scheduled session was cancelled from Auto Records.',
+                ]);
+        }
+
+        $schedule = $session->relationLoaded('schedule')
+            ? $session->schedule
+            : $session->schedule()->first();
+
+        if ($schedule?->recurrence === 'once' && $schedule->is_active) {
+            $schedule->update(['is_active' => false]);
+        }
     }
 
     private function closeExpiredSessions(): void

@@ -185,7 +185,7 @@
   </div>
 </div>
 
-<script type="application/json" id="page-data">@json(['sessions' => $sessions, 'today' => date('Y-m-d')])</script>
+<script type="application/json" id="page-data">@json(['sessions' => $sessions, 'today' => $today])</script>
 @vite('resources/js/pages/auto-records.js')
 </body>
 </html>

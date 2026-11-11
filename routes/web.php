@@ -13,6 +13,7 @@ use App\Http\Controllers\PredictionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\SessionController;
+use App\Models\Camera;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -120,6 +121,26 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/cameras', function () {
         return view('cameras');
     })->name('cameras');
+
+    // The desktop app updates cameras.status in the shared database. Keep the
+    // browser view tied to that record instead of its former demo-only list.
+    Route::get('/cameras/data', function () {
+        $cameras = Camera::query()
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Camera $camera) => [
+                'id' => $camera->id,
+                'name' => $camera->name,
+                'ip_address' => $camera->ip_address,
+                'location' => $camera->location,
+                'status' => $camera->status,
+                'last_detection_at' => $camera->last_detection_at?->toIso8601String(),
+            ])
+            ->values();
+
+        return response()->json(['data' => $cameras])
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    })->name('cameras.data');
 
     Route::get('/admin', function () {
         return view('admin');

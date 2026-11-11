@@ -205,29 +205,16 @@ class AutoSessionIngestController extends Controller
                 ]);
             }
 
-            $existingCounts = $session->detail?->counts ?? array_fill(0, 8, 0);
-            $counts = array_map(
-                fn ($count, $index) => max((int) ($existingCounts[$index] ?? 0), (int) $count),
-                array_values($validated['counts']),
-                array_keys($validated['counts'])
-            );
-            $pcuTotals = array_map(
-                fn ($count, $index) => round($count * self::PCU_FACTORS[$index], 2),
-                $counts,
-                array_keys($counts)
-            );
-            $totalPcu = round(array_sum($pcuTotals), 2);
-            $capacity = max(1, ($session->lanes ?: 1) * ($session->base_capacity_per_lane ?: 720));
-            $vcRatio = round($totalPcu / $capacity, 2);
+            $metrics = $this->metricsFor($session, $validated['counts']);
 
             return AutoSessionDetail::updateOrCreate(
                 ['auto_session_id' => $session->id],
                 [
-                    'total_pcu' => $totalPcu,
-                    'vc_ratio' => $vcRatio,
-                    'los' => $this->levelOfService($vcRatio),
-                    'counts' => $counts,
-                    'pcu_totals' => $pcuTotals,
+                    'total_pcu' => $metrics['total_pcu'],
+                    'vc_ratio' => $metrics['vc_ratio'],
+                    'los' => $metrics['los'],
+                    'counts' => $metrics['counts'],
+                    'pcu_totals' => $metrics['pcu_totals'],
                     'source' => 'auto',
                 ]
             )->fresh();
@@ -274,10 +261,29 @@ class AutoSessionIngestController extends Controller
         $result = DB::transaction(function () use ($autoSession, $validated, $historySync) {
             $session = AutoSession::query()->lockForUpdate()->findOrFail($autoSession->id);
 
+            $metrics = $this->metricsFor($session, $validated['counts']);
+
+            // The website lifecycle can close a session milliseconds before
+            // the Swift device sends its final snapshot. Merge that snapshot
+            // instead of discarding the last detected vehicles.
             if ($session->status === 'ended') {
+                $detail = AutoSessionDetail::updateOrCreate(
+                    ['auto_session_id' => $session->id],
+                    [
+                        'total_pcu' => $metrics['total_pcu'],
+                        'vc_ratio' => $metrics['vc_ratio'],
+                        'los' => $metrics['los'],
+                        'counts' => $metrics['counts'],
+                        'pcu_totals' => $metrics['pcu_totals'],
+                        'source' => 'auto',
+                    ]
+                );
+
+                $historySync->syncAuto($session, $detail);
+
                 return [
                     'session' => $session->fresh(),
-                    'detail' => $session->detail()->first(),
+                    'detail' => $detail,
                 ];
             }
 
@@ -287,21 +293,6 @@ class AutoSessionIngestController extends Controller
                 ]);
             }
 
-            $existingCounts = $session->detail?->counts ?? array_fill(0, 8, 0);
-            $counts = array_map(
-                fn ($count, $index) => max((int) ($existingCounts[$index] ?? 0), (int) $count),
-                array_values($validated['counts']),
-                array_keys($validated['counts'])
-            );
-            $pcuTotals = array_map(
-                fn ($count, $index) => round($count * self::PCU_FACTORS[$index], 2),
-                $counts,
-                array_keys($counts)
-            );
-            $totalPcu = round(array_sum($pcuTotals), 2);
-            $capacity = max(1, ($session->lanes ?: 1) * ($session->base_capacity_per_lane ?: 720));
-            $vcRatio = round($totalPcu / $capacity, 2);
-            $los = $this->levelOfService($vcRatio);
             $requestedEnd = isset($validated['end_time']) ? Carbon::parse($validated['end_time']) : now();
             $plannedEnd = $session->end_time ? Carbon::parse($session->end_time) : null;
             $endTime = $plannedEnd && $requestedEnd->greaterThan($plannedEnd)
@@ -317,11 +308,11 @@ class AutoSessionIngestController extends Controller
             $detail = AutoSessionDetail::updateOrCreate(
                 ['auto_session_id' => $session->id],
                 [
-                    'total_pcu' => $totalPcu,
-                    'vc_ratio' => $vcRatio,
-                    'los' => $los,
-                    'counts' => $counts,
-                    'pcu_totals' => $pcuTotals,
+                    'total_pcu' => $metrics['total_pcu'],
+                    'vc_ratio' => $metrics['vc_ratio'],
+                    'los' => $metrics['los'],
+                    'counts' => $metrics['counts'],
+                    'pcu_totals' => $metrics['pcu_totals'],
                     'source' => 'auto',
                 ]
             );
@@ -345,6 +336,34 @@ class AutoSessionIngestController extends Controller
         });
 
         return response()->json(['success' => true] + $result);
+    }
+
+    private function metricsFor(AutoSession $session, array $submittedCounts): array
+    {
+        $existingDetail = $session->detail()->first();
+        $existingCounts = $existingDetail?->counts ?? array_fill(0, 8, 0);
+        $submittedCounts = array_values($submittedCounts);
+        $counts = array_map(
+            fn ($count, $index) => max((int) ($existingCounts[$index] ?? 0), (int) $count),
+            $submittedCounts,
+            array_keys($submittedCounts)
+        );
+        $pcuTotals = array_map(
+            fn ($count, $index) => round($count * self::PCU_FACTORS[$index], 2),
+            $counts,
+            array_keys($counts)
+        );
+        $totalPcu = round(array_sum($pcuTotals), 2);
+        $capacity = max(1, ($session->lanes ?: 1) * ($session->base_capacity_per_lane ?: 720));
+        $vcRatio = round($totalPcu / $capacity, 2);
+
+        return [
+            'counts' => $counts,
+            'pcu_totals' => $pcuTotals,
+            'total_pcu' => $totalPcu,
+            'vc_ratio' => $vcRatio,
+            'los' => $this->levelOfService($vcRatio),
+        ];
     }
 
     private function levelOfService(float $vcRatio): string

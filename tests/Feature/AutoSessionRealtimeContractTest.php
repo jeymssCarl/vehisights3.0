@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -54,5 +55,10 @@ class AutoSessionRealtimeContractTest extends TestCase
 
         $this->get('/auto-records/data')
             ->assertRedirect('/login');
+    }
+
+    public function test_the_scoped_device_token_command_is_registered(): void
+    {
+        $this->assertArrayHasKey('traffic-counter:issue-token', Artisan::all());
     }
 }

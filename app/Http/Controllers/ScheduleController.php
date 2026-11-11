@@ -227,6 +227,14 @@ class ScheduleController extends Controller
 
             $overlapExists = Schedule::query()
                 ->where('is_active', true)
+                ->where(function ($query) {
+                    $query->where('recurrence', '!=', 'once')
+                        ->orWhereHas(
+                            'autoSessions',
+                            fn ($sessionQuery) => $sessionQuery
+                                ->whereIn('status', ['scheduled', 'active'])
+                        );
+                })
                 ->whereDate('start_date', '<=', $requestedEndDate)
                 ->where(function ($query) use ($requestedStartDate) {
                     $query->whereDate('end_date', '>=', $requestedStartDate)

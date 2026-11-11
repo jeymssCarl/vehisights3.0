@@ -17,8 +17,25 @@ let visibleSelectableIds = [];
 const urlState = new URLSearchParams(window.location.search);
 const isValidDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
 
-let customStartDate = isValidDate(urlState.get('start_date')) ? urlState.get('start_date') : pageData.today;
-let customEndDate = isValidDate(urlState.get('end_date')) ? urlState.get('end_date') : pageData.today;
+function getManilaToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+// Keep the Auto Records default filter aligned with the date shown to users.
+// PHP runs in UTC by default, while all session timestamps are displayed in
+// Philippine time. The browser-side value also protects cached page payloads.
+const todayInManila = getManilaToday();
+
+let customStartDate = isValidDate(urlState.get('start_date')) ? urlState.get('start_date') : todayInManila;
+let customEndDate = isValidDate(urlState.get('end_date')) ? urlState.get('end_date') : todayInManila;
 if (customStartDate > customEndDate) customEndDate = customStartDate;
 
 function filterByDate(session) {
@@ -575,10 +592,10 @@ function applyDateRange() {
 
 document.getElementById('applyDateFilterBtn').addEventListener('click', applyDateRange);
 document.getElementById('todayFilterBtn').addEventListener('click', () => {
-  customStartDate = pageData.today;
-  customEndDate = pageData.today;
-  startDateFilter.value = pageData.today;
-  endDateFilter.value = pageData.today;
+  customStartDate = todayInManila;
+  customEndDate = todayInManila;
+  startDateFilter.value = todayInManila;
+  endDateFilter.value = todayInManila;
   endDateFilter.setCustomValidity('');
   syncFilterStateToUrl();
   renderTable();

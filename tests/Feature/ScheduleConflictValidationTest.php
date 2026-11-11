@@ -40,6 +40,11 @@ class ScheduleConflictValidationTest extends TestCase
             $table->string('recurrence')->default('once');
             $table->boolean('is_active')->default(true);
         });
+        Schema::create('auto_sessions', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('schedule_id')->nullable();
+            $table->string('status');
+        });
 
         DB::table('cameras')->insert([
             ['id' => 1, 'status' => 'online'],
@@ -56,6 +61,11 @@ class ScheduleConflictValidationTest extends TestCase
             'end_time' => '10:00',
             'recurrence' => 'once',
             'is_active' => true,
+        ]);
+        DB::table('auto_sessions')->insert([
+            'id' => 1,
+            'schedule_id' => 1,
+            'status' => 'scheduled',
         ]);
     }
 
@@ -98,6 +108,19 @@ class ScheduleConflictValidationTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey('start_time', $exception->errors());
         }
+    }
+
+    public function test_an_orphaned_one_time_schedule_does_not_block_a_new_session(): void
+    {
+        DB::table('auto_sessions')->where('schedule_id', 1)->delete();
+
+        $validated = $this->validate($this->payload([
+            'camera_id' => 1,
+            'start_time' => '09:30',
+            'end_time' => '10:30',
+        ]));
+
+        $this->assertSame('09:30', $validated['start_time']);
     }
 
     private function validate(array $payload): array

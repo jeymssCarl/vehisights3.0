@@ -1,13 +1,8 @@
 
 /* ─ Data ─ */
-let cameras = [
-  { id:1, name:'Timog Ave North',  ip:'192.168.1.10', location:'Timog Avenue & National Highway', status:'online',  lastDetection:'2s ago',   streamUrl:'rtsp://admin:pass@192.168.1.10:554/stream1' },
-  { id:2, name:'Timog Ave South',  ip:'192.168.1.11', location:'Timog Avenue Southbound',          status:'online',  lastDetection:'5s ago',   streamUrl:'rtsp://admin:pass@192.168.1.11:554/stream1' },
-  { id:3, name:'Apokon East',      ip:'192.168.1.12', location:'Apokon–Bermudez Intersection',     status:'online',  lastDetection:'1s ago',   streamUrl:'rtsp://admin:pass@192.168.1.12:554/stream1' },
-  { id:4, name:'Apokon West',      ip:'192.168.1.13', location:'Apokon–Bermudez West',             status:'offline', lastDetection:'2m ago',   streamUrl:'rtsp://admin:pass@192.168.1.13:554/stream1' },
-  { id:5, name:'Pioneer South',    ip:'192.168.1.14', location:'Pioneer Street',                   status:'online',  lastDetection:'just now', streamUrl:'rtsp://admin:pass@192.168.1.14:554/stream1' },
-  { id:6, name:'Green Coffee',     ip:'192.168.1.15', location:'Green Coffee Warehouse',           status:'offline', lastDetection:'15m ago',  streamUrl:'rtsp://admin:pass@192.168.1.15:554/stream1' },
-];
+let cameras = [];
+let cameraDataRequest = null;
+const camerasDataUrl = '/cameras/data';
 
 let activeFilter = 'all';
 let editId = null;
@@ -20,6 +15,67 @@ function showToast(msg, type = 'success') {
   void t.offsetWidth;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function formatLastDetection(value) {
+  if (!value) return 'never';
+
+  const detectedAt = new Date(value);
+  if (Number.isNaN(detectedAt.getTime())) return 'never';
+
+  const seconds = Math.max(0, Math.floor((Date.now() - detectedAt.getTime()) / 1000));
+  if (seconds < 10) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return detectedAt.toLocaleString();
+}
+
+function normalizeCamera(camera) {
+  return {
+    id: Number(camera.id),
+    name: camera.name || 'Unnamed camera',
+    ip: camera.ip_address || '—',
+    location: camera.location || '—',
+    status: String(camera.status || 'offline').toLowerCase() === 'online' ? 'online' : 'offline',
+    lastDetection: formatLastDetection(camera.last_detection_at),
+    streamUrl: camera.stream_url || '',
+  };
+}
+
+async function fetchCameras({ notify = false } = {}) {
+  if (cameraDataRequest) return;
+
+  const controller = new AbortController();
+  cameraDataRequest = controller;
+
+  try {
+    const response = await fetch(camerasDataUrl, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(`Camera request failed (${response.status})`);
+
+    const payload = await response.json();
+    const rows = Array.isArray(payload) ? payload : payload.data;
+    cameras = (Array.isArray(rows) ? rows : []).map(normalizeCamera);
+    render();
+
+    if (notify) showToast('Camera statuses refreshed', 'info');
+  } catch (error) {
+    if (error.name !== 'AbortError' && notify) {
+      showToast('Could not refresh camera statuses', 'error');
+    }
+  } finally {
+    if (cameraDataRequest === controller) cameraDataRequest = null;
+  }
 }
 
 /* ─ Stats ─ */
@@ -154,10 +210,7 @@ document.querySelectorAll('.pill').forEach(pill => {
 
 /* ─ Search & Refresh ─ */
 document.getElementById('searchInput').addEventListener('input', renderCameras);
-document.getElementById('refreshBtn').addEventListener('click', () => {
-  render();
-  showToast('Camera list refreshed', 'info');
-});
+document.getElementById('refreshBtn').addEventListener('click', () => fetchCameras({ notify: true }));
 
 /* ─ Modal ─ */
 const modal = document.getElementById('cameraModal');
@@ -210,6 +263,13 @@ toggle.addEventListener('click', () => {
 });
 
 render();
+fetchCameras();
+setInterval(() => {
+  if (!document.hidden) fetchCameras();
+}, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) fetchCameras();
+});
 
 // Functions used by action controls rendered in the cameras table.
 window.testConnection = testConnection;

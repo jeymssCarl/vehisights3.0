@@ -7,10 +7,12 @@ const form = document.getElementById('scheduleForm');
 const dateInput = document.getElementById('date');
 const startTimeInput = document.getElementById('start_time');
 const endTimeInput = document.getElementById('end_time');
+const cameraSelect = document.getElementById('camera_id');
 const startButton = document.getElementById('startSessionBtn');
 const noticeModal = document.getElementById('scheduleNoticeModal');
 const confirmModal = document.getElementById('scheduleConfirmModal');
 let timePickers = null;
+let cameraStatusRequest = null;
 localStorage.removeItem('vehisights-scheduling-daily-draft');
 
 const startButtonContent = `
@@ -37,6 +39,49 @@ function manilaDateTime(offsetMs = 0) {
     date: `${value('year')}-${value('month')}-${value('day')}`,
     time: `${value('hour')}:${value('minute')}`,
   };
+}
+
+async function refreshOnlineCameras() {
+  if (!cameraSelect || document.hidden || cameraStatusRequest) return;
+
+  const controller = new AbortController();
+  cameraStatusRequest = controller;
+
+  try {
+    const response = await fetch('/cameras/data', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Camera status refresh failed (${response.status}).`);
+
+    const payload = await response.json();
+    const cameras = Array.isArray(payload) ? payload : payload.data;
+    const selectedId = cameraSelect.value;
+    const fragment = document.createDocumentFragment();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a camera...';
+    fragment.appendChild(placeholder);
+
+    (Array.isArray(cameras) ? cameras : [])
+      .filter(camera => String(camera.status || '').toLowerCase() === 'online')
+      .forEach(camera => {
+        const option = document.createElement('option');
+        option.value = String(camera.id);
+        option.textContent = `${camera.name} (${camera.location || 'No location'}) — online`;
+        fragment.appendChild(option);
+      });
+
+    cameraSelect.replaceChildren(fragment);
+    if ([...cameraSelect.options].some(option => option.value === selectedId)) {
+      cameraSelect.value = selectedId;
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') console.warn(error.message);
+  } finally {
+    if (cameraStatusRequest === controller) cameraStatusRequest = null;
+  }
 }
 
 function updateTimeConstraints(setSafeDefault = false) {
@@ -336,3 +381,8 @@ timePickers = setupScheduleTimePickers({
 });
 updateTimeConstraints(true);
 timePickers.sync();
+refreshOnlineCameras();
+window.setInterval(refreshOnlineCameras, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshOnlineCameras();
+});
