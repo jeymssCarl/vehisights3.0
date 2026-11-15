@@ -745,7 +745,7 @@ function connectSupabaseRealtime() {
   const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   if (!url || !publishableKey) {
-    console.warn('Supabase Realtime is not configured; using the Laravel refresh fallback.');
+    console.warn('Supabase Realtime is not configured; Auto Records will not receive live updates.');
     return;
   }
 
@@ -788,7 +788,3 @@ function connectSupabaseRealtime() {
 }
 
 connectSupabaseRealtime();
-
-// Authenticated Laravel fallback: protects the page when Realtime is offline,
-// misconfigured, or temporarily reconnecting.
-setInterval(refreshAutoRecords, 2000);
