@@ -15,6 +15,10 @@ const confirmModal = document.getElementById('scheduleConfirmModal');
 let timePickers = null;
 let cameraStatusRequest = null;
 let scheduleCameras = [];
+// Keep the complete list that Laravel rendered when this page opened. Status
+// updates are allowed to change an entry, but an availability update must
+// never make an offline camera disappear from the scheduling control.
+const renderedCameraCatalog = new Map();
 localStorage.removeItem('vehisights-scheduling-daily-draft');
 
 const startButtonContent = `
@@ -58,7 +62,7 @@ function normalizedCamera(camera) {
 function hydrateServerRenderedCameras() {
   if (!cameraSelect) return;
 
-  scheduleCameras = [...cameraSelect.options]
+  const renderedCameras = [...cameraSelect.options]
     .filter(option => option.value && option.dataset.cameraId)
     .map(option => normalizedCamera({
       id: option.dataset.cameraId,
@@ -66,6 +70,20 @@ function hydrateServerRenderedCameras() {
       location: option.dataset.cameraLocation,
       status: option.dataset.cameraStatus,
     }));
+
+  renderedCameras.forEach(camera => renderedCameraCatalog.set(camera.id, camera));
+  scheduleCameras = [...renderedCameraCatalog.values()];
+}
+
+function mergeCamera(camera) {
+  const normalized = normalizedCamera(camera);
+  if (!Number.isFinite(normalized.id) || normalized.id <= 0) return;
+
+  renderedCameraCatalog.set(normalized.id, {
+    ...renderedCameraCatalog.get(normalized.id),
+    ...normalized,
+  });
+  scheduleCameras = [...renderedCameraCatalog.values()];
 }
 
 function renderCameraOptions() {
@@ -133,10 +151,10 @@ async function refreshCameras() {
     // Merge rather than replace: availability endpoints from an older server
     // version may return only online cameras. An offline camera already shown
     // in the scheduling dropdown must remain schedulable and visible.
-    const incomingCameras = (Array.isArray(cameras) ? cameras : []).map(normalizedCamera);
-    const camerasByID = new Map(scheduleCameras.map(camera => [camera.id, camera]));
-    incomingCameras.forEach(camera => camerasByID.set(camera.id, { ...camerasByID.get(camera.id), ...camera }));
-    scheduleCameras = [...camerasByID.values()];
+    const incomingCameras = Array.isArray(cameras) ? cameras : [];
+    // Deliberately merge, never replace. This protects offline cameras when a
+    // cached/proxied response contains only reachable cameras.
+    incomingCameras.forEach(mergeCamera);
     renderCameraOptions();
   } catch (error) {
     if (error.name !== 'AbortError') console.warn(error.message);
@@ -165,12 +183,13 @@ function connectCameraRealtime() {
       { event: '*', schema: 'public', table: 'cameras' },
       payload => {
         if (payload.eventType === 'DELETE') {
-          scheduleCameras = scheduleCameras.filter(camera => camera.id !== Number(payload.old.id));
+          // Do not remove a choice because of a transient/replayed Realtime
+          // event. A normal page load is the authority for intentional camera
+          // deletion; this page must keep every saved offline camera usable.
+          const existing = renderedCameraCatalog.get(Number(payload.old.id));
+          if (existing) mergeCamera({ ...existing, status: 'offline' });
         } else {
-          const incoming = normalizedCamera(payload.new);
-          const index = scheduleCameras.findIndex(camera => camera.id === incoming.id);
-          if (index === -1) scheduleCameras.push(incoming);
-          else scheduleCameras[index] = { ...scheduleCameras[index], ...incoming };
+          mergeCamera(payload.new);
         }
         renderCameraOptions();
       }

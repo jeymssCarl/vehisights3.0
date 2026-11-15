@@ -22,7 +22,9 @@ class ScheduleController extends Controller
         $schedules = Schedule::with(['camera', 'user'])->orderByDesc('created_at')->get();
         // Offline cameras remain schedulable. The browser shows their current
         // availability so an operator can plan ahead without hiding them.
-        $cameras = Camera::orderBy('name')->get();
+        // Never filter this list by availability. Offline cameras must remain
+        // visible so operators can schedule them ahead of reconnection.
+        $cameras = Camera::query()->withoutGlobalScopes()->orderBy('name')->get();
 
         return view('schedules', compact('schedules', 'cameras'));
     }

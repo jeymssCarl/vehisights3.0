@@ -125,7 +125,10 @@ Route::middleware(['auth'])->group(function () {
     // The desktop app updates cameras.status in the shared database. Keep the
     // browser view tied to that record instead of its former demo-only list.
     Route::get('/cameras/data', function () {
-        $cameras = Camera::query()
+        // This is the scheduling availability catalogue, not an "online
+        // cameras" endpoint. Return every saved camera and let the UI show its
+        // current status beside the selectable option.
+        $cameras = Camera::query()->withoutGlobalScopes()
             ->orderBy('name')
             ->get()
             ->map(fn (Camera $camera) => [
