@@ -477,7 +477,7 @@ function showSessionDetails(session) {
     <div class="live-details-banner">
       <span class="live-details-dot"></span>
       <strong>Live counting</strong>
-      <span>Vehicle totals refresh automatically every 2 seconds.</span>
+      <span>Vehicle totals Update Instantly Through Database RealTime Updates.</span>
     </div>
   ` : '';
 

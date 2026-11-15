@@ -20,7 +20,9 @@ class ScheduleController extends Controller
     public function index()
     {
         $schedules = Schedule::with(['camera', 'user'])->orderByDesc('created_at')->get();
-        $cameras = Camera::where('status', 'online')->orderBy('name')->get();
+        // Offline cameras remain schedulable. The browser shows their current
+        // availability so an operator can plan ahead without hiding them.
+        $cameras = Camera::orderBy('name')->get();
 
         return view('schedules', compact('schedules', 'cameras'));
     }
@@ -168,10 +170,7 @@ class ScheduleController extends Controller
             'day_classification' => 'nullable|in:market_day,sunday',
             'lanes' => 'required|integer|min:1|max:20',
             'has_median' => 'required|boolean',
-            'camera_id' => [
-                'required',
-                Rule::exists('cameras', 'id')->where(fn ($query) => $query->where('status', 'online')),
-            ],
+            'camera_id' => ['required', Rule::exists('cameras', 'id')],
             'start_date' => 'required|date_format:Y-m-d',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'start_time' => 'required|date_format:H:i',

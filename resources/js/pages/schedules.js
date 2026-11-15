@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import { setupScheduleTimePickers } from '../components/schedule-time-picker';
 
 const pageData = JSON.parse(document.getElementById('page-data').textContent);
@@ -13,6 +14,7 @@ const noticeModal = document.getElementById('scheduleNoticeModal');
 const confirmModal = document.getElementById('scheduleConfirmModal');
 let timePickers = null;
 let cameraStatusRequest = null;
+let scheduleCameras = [];
 localStorage.removeItem('vehisights-scheduling-daily-draft');
 
 const startButtonContent = `
@@ -41,8 +43,79 @@ function manilaDateTime(offsetMs = 0) {
   };
 }
 
-async function refreshOnlineCameras() {
-  if (!cameraSelect || document.hidden || cameraStatusRequest) return;
+function normalizedCamera(camera) {
+  return {
+    id: Number(camera.id),
+    name: camera.name || 'Unnamed camera',
+    location: camera.location || 'No location',
+    status: String(camera.status || 'offline').toLowerCase() === 'online' ? 'online' : 'offline',
+  };
+}
+
+// Start from Laravel's complete server-rendered list. This means every saved
+// camera remains schedulable even if an older availability endpoint returns a
+// partial, online-only result during the first browser refresh.
+function hydrateServerRenderedCameras() {
+  if (!cameraSelect) return;
+
+  scheduleCameras = [...cameraSelect.options]
+    .filter(option => option.value && option.dataset.cameraId)
+    .map(option => normalizedCamera({
+      id: option.dataset.cameraId,
+      name: option.dataset.cameraName,
+      location: option.dataset.cameraLocation,
+      status: option.dataset.cameraStatus,
+    }));
+}
+
+function renderCameraOptions() {
+  if (!cameraSelect) return;
+
+  const selectedId = cameraSelect.value;
+  const fragment = document.createDocumentFragment();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Choose a camera...';
+  fragment.appendChild(placeholder);
+
+  scheduleCameras
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(camera => {
+      const option = document.createElement('option');
+      option.value = String(camera.id);
+      option.textContent = `${camera.name} (${camera.location}) — ${camera.status === 'online' ? 'reachable' : 'unreachable · scheduling allowed'}`;
+      fragment.appendChild(option);
+    });
+
+  cameraSelect.replaceChildren(fragment);
+  if ([...cameraSelect.options].some(option => option.value === selectedId)) {
+    cameraSelect.value = selectedId;
+  }
+  updateCameraAvailability();
+}
+
+function updateCameraAvailability() {
+  const notice = document.getElementById('cameraAvailability');
+  if (!notice) return;
+
+  const selected = scheduleCameras.find(camera => String(camera.id) === cameraSelect.value);
+  if (!selected) {
+    notice.hidden = true;
+    return;
+  }
+
+  notice.hidden = false;
+  const isOnline = selected.status === 'online';
+  notice.textContent = isOnline
+    ? 'Camera is reachable from its desktop station.'
+    : 'Camera is unreachable. You may still schedule it, but counting starts only after its desktop station reconnects.';
+  notice.classList.toggle('offline-camera-notice', !isOnline);
+  notice.classList.toggle('online-camera-notice', isOnline);
+}
+
+async function refreshCameras() {
+  if (!cameraSelect || cameraStatusRequest) return;
 
   const controller = new AbortController();
   cameraStatusRequest = controller;
@@ -57,31 +130,54 @@ async function refreshOnlineCameras() {
 
     const payload = await response.json();
     const cameras = Array.isArray(payload) ? payload : payload.data;
-    const selectedId = cameraSelect.value;
-    const fragment = document.createDocumentFragment();
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Choose a camera...';
-    fragment.appendChild(placeholder);
-
-    (Array.isArray(cameras) ? cameras : [])
-      .filter(camera => String(camera.status || '').toLowerCase() === 'online')
-      .forEach(camera => {
-        const option = document.createElement('option');
-        option.value = String(camera.id);
-        option.textContent = `${camera.name} (${camera.location || 'No location'}) — online`;
-        fragment.appendChild(option);
-      });
-
-    cameraSelect.replaceChildren(fragment);
-    if ([...cameraSelect.options].some(option => option.value === selectedId)) {
-      cameraSelect.value = selectedId;
-    }
+    // Merge rather than replace: availability endpoints from an older server
+    // version may return only online cameras. An offline camera already shown
+    // in the scheduling dropdown must remain schedulable and visible.
+    const incomingCameras = (Array.isArray(cameras) ? cameras : []).map(normalizedCamera);
+    const camerasByID = new Map(scheduleCameras.map(camera => [camera.id, camera]));
+    incomingCameras.forEach(camera => camerasByID.set(camera.id, { ...camerasByID.get(camera.id), ...camera }));
+    scheduleCameras = [...camerasByID.values()];
+    renderCameraOptions();
   } catch (error) {
     if (error.name !== 'AbortError') console.warn(error.message);
   } finally {
     if (cameraStatusRequest === controller) cameraStatusRequest = null;
   }
+}
+
+function connectCameraRealtime() {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !publishableKey) {
+    console.warn('Supabase Realtime is not configured; camera availability will not update automatically.');
+    return;
+  }
+
+  const supabase = createClient(url, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  supabase
+    .channel('vehisights-schedule-cameras')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'cameras' },
+      payload => {
+        if (payload.eventType === 'DELETE') {
+          scheduleCameras = scheduleCameras.filter(camera => camera.id !== Number(payload.old.id));
+        } else {
+          const incoming = normalizedCamera(payload.new);
+          const index = scheduleCameras.findIndex(camera => camera.id === incoming.id);
+          if (index === -1) scheduleCameras.push(incoming);
+          else scheduleCameras[index] = { ...scheduleCameras[index], ...incoming };
+        }
+        renderCameraOptions();
+      }
+    )
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') console.info('Supabase Realtime connected for scheduling camera status.');
+    });
 }
 
 function updateTimeConstraints(setSafeDefault = false) {
@@ -229,6 +325,7 @@ startTimeInput.addEventListener('blur', () => {
   enforceStartTime(false);
   showPendingTimeNotice('start');
 });
+cameraSelect.addEventListener('change', updateCameraAvailability);
 endTimeInput.addEventListener('focus', () => {
   endTimeInput.min = startTimeInput.value || '';
 });
@@ -381,8 +478,6 @@ timePickers = setupScheduleTimePickers({
 });
 updateTimeConstraints(true);
 timePickers.sync();
-refreshOnlineCameras();
-window.setInterval(refreshOnlineCameras, 1000);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refreshOnlineCameras();
-});
+hydrateServerRenderedCameras();
+refreshCameras();
+connectCameraRealtime();

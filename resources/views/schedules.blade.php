@@ -245,11 +245,16 @@
                   <select id="camera_id" required>
                     <option value="">Choose a camera...</option>
                     @foreach($cameras as $camera)
-                    <option value="{{ $camera->id }}">
-                      {{ $camera->name }} ({{ $camera->location }}) — {{ $camera->status }}
+                    <option value="{{ $camera->id }}"
+                      data-camera-id="{{ $camera->id }}"
+                      data-camera-name="{{ $camera->name }}"
+                      data-camera-location="{{ $camera->location }}"
+                      data-camera-status="{{ $camera->status }}">
+                      {{ $camera->name }} ({{ $camera->location }}) — {{ $camera->status === 'online' ? 'reachable' : 'unreachable · scheduling allowed' }}
                     </option>
                     @endforeach
                   </select>
+                  <p id="cameraAvailability" class="camera-availability" hidden aria-live="polite"></p>
                 </div>
               </div>
 
