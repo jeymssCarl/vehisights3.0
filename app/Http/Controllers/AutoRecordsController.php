@@ -16,6 +16,7 @@ class AutoRecordsController extends Controller
     public function index()
     {
         $this->closeExpiredSessions();
+        $this->synchronizeDesktopCompletedSessions();
         $sessions = $this->recordsQuery()->get();
         $today = Carbon::now('Asia/Manila')->toDateString();
 
@@ -25,6 +26,7 @@ class AutoRecordsController extends Controller
     public function data()
     {
         $this->closeExpiredSessions();
+        $this->synchronizeDesktopCompletedSessions();
 
         return response()->json([
             'success' => true,
@@ -328,6 +330,54 @@ class AutoRecordsController extends Controller
                     }
 
                     app(TrafficHistorySyncService::class)->syncAuto($session, $detail);
+                });
+            });
+    }
+
+    /**
+     * The desktop writes its final automatic-session detail directly to the
+     * shared Supabase database, then marks the session ended. That is the same
+     * database this Laravel application reads, but it bypasses the normal
+     * Laravel completion endpoint. Reconcile those completed rows once so
+     * Reports and traffic_history retain the final desktop count too.
+     */
+    private function synchronizeDesktopCompletedSessions(): void
+    {
+        AutoSession::query()
+            ->with(['schedule', 'detail', 'camera'])
+            ->where('status', 'ended')
+            ->whereHas('detail')
+            ->whereDoesntHave('trafficHistory')
+            ->pluck('id')
+            ->each(function (int $id) {
+                DB::transaction(function () use ($id) {
+                    $session = AutoSession::query()
+                        ->with(['schedule', 'detail', 'camera', 'trafficHistory'])
+                        ->lockForUpdate()
+                        ->find($id);
+
+                    if (! $session || $session->status !== 'ended' || ! $session->detail || $session->trafficHistory) {
+                        return;
+                    }
+
+                    $completedAt = $session->end_time ?? now();
+
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->whereIn('status', ['pending', 'running'])
+                        ->update([
+                            'status' => 'success',
+                            'completed_at' => $completedAt,
+                            'error_message' => null,
+                        ]);
+
+                    if ($session->schedule?->recurrence === 'once') {
+                        $session->schedule->update(['is_active' => false]);
+                    }
+
+                    $session->camera?->update(['last_detection_at' => $completedAt]);
+
+                    app(TrafficHistorySyncService::class)->syncAuto($session, $session->detail);
                 });
             });
     }

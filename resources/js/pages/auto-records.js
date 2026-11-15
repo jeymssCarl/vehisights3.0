@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+
 // Dark mode
 const html = document.documentElement;
 const toggle = document.getElementById('themeToggle');
@@ -716,4 +718,77 @@ async function refreshAutoRecords() {
   }
 }
 
+/**
+ * Apply a Supabase detail event immediately so the open modal reflects the
+ * counter without waiting for the authenticated Laravel refresh fallback.
+ */
+function applyRealtimeDetail(detail) {
+  const sessionID = Number(detail?.auto_session_id);
+  if (!Number.isFinite(sessionID)) return;
+
+  const session = sessionsData.find(item => Number(item.id) === sessionID);
+  if (!session) {
+    refreshAutoRecords();
+    return;
+  }
+
+  session.detail = detail;
+  renderTable();
+
+  if (activeDetailsSessionId !== null && Number(activeDetailsSessionId) === sessionID) {
+    showSessionDetails(session);
+  }
+}
+
+function connectSupabaseRealtime() {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !publishableKey) {
+    console.warn('Supabase Realtime is not configured; using the Laravel refresh fallback.');
+    return;
+  }
+
+  const supabase = createClient(url, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const channel = supabase
+    .channel('vehisights-auto-records')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'auto_session_details' },
+      payload => {
+        if (payload.eventType === 'DELETE') {
+          refreshAutoRecords();
+          return;
+        }
+
+        applyRealtimeDetail(payload.new);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'auto_sessions' },
+      () => refreshAutoRecords()
+    )
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') {
+        console.info('Supabase Realtime connected for Auto Records.');
+      }
+
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('Supabase Realtime connection failed:', status);
+      }
+    });
+
+  window.addEventListener('beforeunload', () => {
+    supabase.removeChannel(channel);
+  }, { once: true });
+}
+
+connectSupabaseRealtime();
+
+// Authenticated Laravel fallback: protects the page when Realtime is offline,
+// misconfigured, or temporarily reconnecting.
 setInterval(refreshAutoRecords, 2000);
