@@ -44,7 +44,9 @@ class ScheduleController extends Controller
                 ($schedule->end_date ?: $schedule->start_date)->format('Y-m-d').' '.$schedule->end_time,
                 'Asia/Manila'
             )->utc();
-            $status = now()->gte($scheduledStart) ? 'active' : 'scheduled';
+            $status = now()->gte($scheduledStart)
+                ? (strtolower((string) $schedule->camera->status) === 'online' ? 'active' : 'denied')
+                : 'scheduled';
             $direction = collect([$schedule->direction_from, $schedule->direction_to])
                 ->filter(fn ($value) => filled($value))
                 ->implode(' → ');
@@ -83,8 +85,12 @@ class ScheduleController extends Controller
             ScheduleLog::create([
                 'schedule_id' => $schedule->id,
                 'auto_session_id' => $autoSession->id,
-                'status' => $status === 'active' ? 'running' : 'pending',
+                'status' => $status === 'active' ? 'running' : ($status === 'denied' ? 'failed' : 'pending'),
                 'started_at' => $status === 'active' ? $scheduledStart : null,
+                'completed_at' => $status === 'denied' ? now() : null,
+                'error_message' => $status === 'denied'
+                    ? 'Session denied because the assigned camera is unreachable.'
+                    : null,
             ]);
 
             return [
@@ -97,7 +103,9 @@ class ScheduleController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Automatic counting schedule created and queued for the camera.',
+            'message' => $autoSession->status === 'denied'
+                ? 'Schedule created, but its session was denied because the selected camera is unreachable.'
+                : 'Automatic counting schedule created and queued for the camera.',
             'schedule' => $schedule,
             'auto_session' => $autoSession,
         ]);

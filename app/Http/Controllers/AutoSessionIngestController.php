@@ -88,7 +88,7 @@ class AutoSessionIngestController extends Controller
 
             $existingSession = AutoSession::query()
                 ->where('schedule_id', $schedule->id)
-                ->whereIn('status', ['scheduled', 'active'])
+                ->whereIn('status', ['scheduled', 'active', 'denied'])
                 ->lockForUpdate()
                 ->latest('id')
                 ->first();
@@ -110,7 +110,9 @@ class AutoSessionIngestController extends Controller
                 ]);
             }
 
-            $status = now()->gte($scheduledStart) ? 'active' : 'scheduled';
+            $status = now()->gte($scheduledStart)
+                ? (strtolower((string) $camera->status) === 'online' ? 'active' : 'denied')
+                : 'scheduled';
 
             $autoSession = AutoSession::create([
                 'schedule_id' => $schedule->id,
@@ -153,9 +155,12 @@ class AutoSessionIngestController extends Controller
 
             ($log ?: new ScheduleLog(['schedule_id' => $schedule->id]))->fill([
                 'auto_session_id' => $autoSession->id,
-                'status' => $status === 'active' ? 'running' : 'pending',
+                'status' => $status === 'active' ? 'running' : ($status === 'denied' ? 'failed' : 'pending'),
                 'started_at' => $status === 'active' ? $autoSession->start_time : null,
-                'error_message' => null,
+                'completed_at' => $status === 'denied' ? now() : null,
+                'error_message' => $status === 'denied'
+                    ? 'Session denied because the assigned camera is unreachable.'
+                    : null,
             ])->save();
 
             return $autoSession->load(['schedule', 'camera', 'detail']);
@@ -166,6 +171,7 @@ class AutoSessionIngestController extends Controller
             'message' => match ($autoSession->status) {
                 'scheduled' => 'Automatic counting session scheduled successfully.',
                 'active' => 'Automatic counting session started successfully.',
+                'denied' => 'The session was denied because the assigned camera is unreachable.',
                 default => 'The scheduled counting window has already ended.',
             },
             'auto_session' => $autoSession,
@@ -408,6 +414,29 @@ class AutoSessionIngestController extends Controller
                     'status' => 'failed',
                     'completed_at' => $session->end_time,
                     'error_message' => 'The camera did not start before the scheduled counting window ended.',
+                ]);
+
+            if ($session->schedule?->recurrence === 'once') {
+                $session->schedule->update(['is_active' => false]);
+            }
+
+            return $session->fresh();
+        }
+
+        $cameraIsOnline = Camera::query()
+            ->whereKey($session->camera_id)
+            ->whereRaw("LOWER(COALESCE(status, 'offline')) = ?", ['online'])
+            ->exists();
+
+        if (! $cameraIsOnline) {
+            $session->update(['status' => 'denied']);
+            ScheduleLog::query()
+                ->where('auto_session_id', $session->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'failed',
+                    'completed_at' => now(),
+                    'error_message' => 'Session denied because the assigned camera is unreachable.',
                 ]);
 
             if ($session->schedule?->recurrence === 'once') {

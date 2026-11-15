@@ -16,6 +16,7 @@ class AutoRecordsController extends Controller
     public function index()
     {
         $this->closeExpiredSessions();
+        $this->synchronizeDeniedSessions();
         $this->synchronizeDesktopCompletedSessions();
         $sessions = $this->recordsQuery()->get();
         $today = Carbon::now('Asia/Manila')->toDateString();
@@ -26,6 +27,7 @@ class AutoRecordsController extends Controller
     public function data()
     {
         $this->closeExpiredSessions();
+        $this->synchronizeDeniedSessions();
         $this->synchronizeDesktopCompletedSessions();
 
         return response()->json([
@@ -94,14 +96,14 @@ class AutoRecordsController extends Controller
     {
         $sessions = AutoSession::query()
             ->with(['schedule', 'detail'])
-            ->whereIn('status', ['scheduled', 'ended'])
+            ->whereIn('status', ['scheduled', 'ended', 'denied'])
             ->get();
         $deletedCount = $sessions->count();
 
         DB::transaction(function () use ($historySync) {
             AutoSession::query()
                 ->with(['schedule', 'detail'])
-                ->whereIn('status', ['scheduled', 'ended'])
+                ->whereIn('status', ['scheduled', 'ended', 'denied'])
                 ->get()
                 ->each(function (AutoSession $session) use ($historySync) {
                     $historySync->deleteAuto($session);
@@ -129,7 +131,7 @@ class AutoRecordsController extends Controller
         $sessions = AutoSession::query()
             ->with(['schedule', 'detail'])
             ->whereIn('id', $validated['session_ids'])
-            ->whereIn('status', ['scheduled', 'ended'])
+            ->whereIn('status', ['scheduled', 'ended', 'denied'])
             ->get();
 
         if ($sessions->count() !== count($validated['session_ids'])) {
@@ -165,9 +167,9 @@ class AutoRecordsController extends Controller
     private function recordsQuery()
     {
         return AutoSession::query()
-            ->with(['detail', 'schedule', 'camera', 'user'])
-            ->whereIn('status', ['scheduled', 'active', 'ended'])
-            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END")
+            ->with(['detail', 'schedule', 'camera', 'user', 'latestScheduleLog'])
+            ->whereIn('status', ['scheduled', 'active', 'ended', 'denied'])
+            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 WHEN 'denied' THEN 2 ELSE 3 END")
             ->orderByDesc('start_time');
     }
 
@@ -195,13 +197,68 @@ class AutoRecordsController extends Controller
 
     private function closeExpiredSessions(): void
     {
+        // The desktop polls once per second and may mark a due session active
+        // just before this request evaluates the camera. During the short
+        // start-up window, a still-pending log proves counting has not begun;
+        // deny that session when its assigned camera is offline. Restricting
+        // this check to 15 seconds prevents a later network interruption from
+        // rewriting a genuinely running session as a start-time denial.
+        $pendingSessionIds = ScheduleLog::query()
+            ->where('status', 'pending')
+            ->whereNotNull('auto_session_id')
+            ->pluck('auto_session_id');
+
+        AutoSession::query()
+            ->with(['schedule', 'camera'])
+            ->whereIn('id', $pendingSessionIds)
+            ->where('status', 'active')
+            ->where('start_time', '<=', now())
+            ->where('start_time', '>=', now()->subSeconds(15))
+            ->get()
+            ->each(function (AutoSession $candidate) {
+                if (strtolower((string) $candidate->camera?->status) === 'online') {
+                    return;
+                }
+
+                DB::transaction(function () use ($candidate) {
+                    $session = AutoSession::query()
+                        ->with(['schedule', 'camera'])
+                        ->lockForUpdate()
+                        ->find($candidate->id);
+
+                    $hasPendingLog = ScheduleLog::query()
+                        ->where('auto_session_id', $candidate->id)
+                        ->where('status', 'pending')
+                        ->exists();
+
+                    if (! $session || $session->status !== 'active' || ! $hasPendingLog
+                        || strtolower((string) $session->camera?->status) === 'online') {
+                        return;
+                    }
+
+                    $session->update(['status' => 'denied']);
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->where('status', 'pending')
+                        ->update([
+                            'status' => 'failed',
+                            'completed_at' => now(),
+                            'error_message' => 'Session denied because the assigned camera is unreachable.',
+                        ]);
+
+                    if ($session->schedule?->recurrence === 'once') {
+                        $session->schedule->update(['is_active' => false]);
+                    }
+                });
+            });
+
         AutoSession::query()
             ->where('status', 'active')
             ->where('start_time', '>', now())
             ->get()
             ->each(function (AutoSession $candidate) {
                 DB::transaction(function () use ($candidate) {
-                    $session = AutoSession::query()->lockForUpdate()->find($candidate->id);
+                    $session = AutoSession::query()->with(['schedule', 'camera'])->lockForUpdate()->find($candidate->id);
 
                     if (! $session || $session->status !== 'active' || now()->gte($session->start_time)) {
                         return;
@@ -226,7 +283,7 @@ class AutoRecordsController extends Controller
             ->get()
             ->each(function (AutoSession $candidate) {
                 DB::transaction(function () use ($candidate) {
-                    $session = AutoSession::query()->lockForUpdate()->find($candidate->id);
+                    $session = AutoSession::query()->with(['schedule', 'camera'])->lockForUpdate()->find($candidate->id);
 
                     if (! $session || $session->status !== 'scheduled' || now()->lt($session->start_time)) {
                         return;
@@ -241,6 +298,24 @@ class AutoRecordsController extends Controller
                                 'status' => 'failed',
                                 'completed_at' => $session->end_time,
                                 'error_message' => 'The camera did not start before the scheduled counting window ended.',
+                            ]);
+
+                        if ($session->schedule?->recurrence === 'once') {
+                            $session->schedule->update(['is_active' => false]);
+                        }
+
+                        return;
+                    }
+
+                    if (strtolower((string) $session->camera?->status) !== 'online') {
+                        $session->update(['status' => 'denied']);
+                        ScheduleLog::query()
+                            ->where('auto_session_id', $session->id)
+                            ->where('status', 'pending')
+                            ->update([
+                                'status' => 'failed',
+                                'completed_at' => now(),
+                                'error_message' => 'Session denied because the assigned camera is unreachable.',
                             ]);
 
                         if ($session->schedule?->recurrence === 'once') {
@@ -378,6 +453,44 @@ class AutoRecordsController extends Controller
                     $session->camera?->update(['last_detection_at' => $completedAt]);
 
                     app(TrafficHistorySyncService::class)->syncAuto($session, $session->detail);
+                });
+            });
+    }
+
+    /**
+     * The desktop can deny a due session directly through the shared database
+     * when the selected camera is offline. Keep the website-owned schedule log
+     * and one-time schedule state consistent with that authoritative result.
+     */
+    private function synchronizeDeniedSessions(): void
+    {
+        AutoSession::query()
+            ->with('schedule')
+            ->where('status', 'denied')
+            ->pluck('id')
+            ->each(function (int $id) {
+                DB::transaction(function () use ($id) {
+                    $session = AutoSession::query()
+                        ->with('schedule')
+                        ->lockForUpdate()
+                        ->find($id);
+
+                    if (! $session || $session->status !== 'denied') {
+                        return;
+                    }
+
+                    ScheduleLog::query()
+                        ->where('auto_session_id', $session->id)
+                        ->whereIn('status', ['pending', 'running'])
+                        ->update([
+                            'status' => 'failed',
+                            'completed_at' => now(),
+                            'error_message' => 'Session denied because the assigned camera is unreachable.',
+                        ]);
+
+                    if ($session->schedule?->recurrence === 'once') {
+                        $session->schedule->update(['is_active' => false]);
+                    }
                 });
             });
     }

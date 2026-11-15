@@ -437,6 +437,7 @@ body {
 .status-badge.active { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
 .status-badge.scheduled { background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(37, 99, 235, 0.18); }
 .status-badge.ended { background: var(--surface3); color: var(--text-muted); }
+.status-badge.denied { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
 .action-icons { display: flex; gap: 8px; justify-content: center; align-items: center; }
 .live-record-label { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; background: var(--green-bg); border: 1px solid var(--green-border); color: var(--green); font-size: 0.67rem; font-weight: 700; }
 .live-record-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: live-record-pulse 1.5s ease-in-out infinite; }
@@ -502,6 +503,42 @@ body {
 }
 .modal-close:hover { background: var(--surface3); color: var(--text); }
 .modal-body { padding: 24px; }
+.denied-info-modal .modal { max-width: 560px; }
+.denied-info-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--red-border);
+  border-radius: 12px;
+  background: var(--red-bg);
+}
+.denied-info-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--red);
+  background: var(--surface);
+}
+.denied-info-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; }
+.denied-info-heading { color: var(--red); font-size: 0.92rem; font-weight: 600; margin-bottom: 4px; }
+.denied-info-message { color: var(--text-muted); font-size: 0.8rem; line-height: 1.55; }
+.denied-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  margin-top: 20px;
+}
+.denied-info-grid div { min-width: 0; }
+.denied-info-grid dt { color: var(--text-dim); font-size: 0.65rem; font-weight: 600; text-transform: uppercase; }
+.denied-info-grid dd { margin-top: 4px; color: var(--text); font-size: 0.8rem; overflow-wrap: anywhere; }
+.denied-info-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+@media (max-width: 540px) {
+  .denied-info-grid { grid-template-columns: 1fr; }
+}
 /* DETAILS MODAL */
 .details-stats-grid {
   display: grid;

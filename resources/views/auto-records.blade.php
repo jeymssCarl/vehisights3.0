@@ -111,6 +111,17 @@
   </div>
 </div>
 
+<!-- DENIED SESSION INFO MODAL -->
+<div id="deniedInfoModal" class="modal-overlay denied-info-modal" role="dialog" aria-modal="true" aria-labelledby="deniedInfoTitle">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="deniedInfoTitle">Session Denied</h3>
+      <button class="modal-close" id="closeDeniedInfoModalBtn" type="button" aria-label="Close denied session information">&times;</button>
+    </div>
+    <div class="modal-body" id="deniedInfoModalBody"></div>
+  </div>
+</div>
+
 <!-- EDIT MODAL -->
 <div id="editModal" class="modal-overlay">
   <div class="modal">

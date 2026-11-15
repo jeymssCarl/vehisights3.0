@@ -108,7 +108,7 @@ const VEHICLE_NAMES = [
 ];
 
 function isBulkDeletable(session) {
-  return session.status === 'scheduled' || session.status === 'ended';
+  return session.status === 'scheduled' || session.status === 'ended' || session.status === 'denied';
 }
 
 function updateSelectionControls() {
@@ -153,7 +153,9 @@ function renderTable() {
   
   tbody.innerHTML = filtered.map(s => {
     const dateTime = formatDateTime(s.start_time);
-    const statusLabel = s.status === 'scheduled' ? 'Scheduled' : (s.status === 'active' ? 'Active' : 'Ended');
+    const statusLabel = s.status === 'scheduled'
+      ? 'Scheduled'
+      : (s.status === 'active' ? 'Active' : (s.status === 'denied' ? 'Denied' : 'Ended'));
     const selectable = isBulkDeletable(s);
     const isSelected = selectedSessionIds.has(Number(s.id));
     const actions = s.status === 'scheduled'
@@ -166,14 +168,14 @@ function renderTable() {
            <div class="action-icon stop" data-id="${s.id}" title="Stop Active Session" role="button" aria-label="Stop active session ${escapeHtml(s.session_code)}">
              <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
            </div>`
-        : `<div class="action-icon edit" data-id="${s.id}" title="Edit Session">
+        : `${s.status === 'ended' ? `<div class="action-icon edit" data-id="${s.id}" title="Edit Session">
              <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-           </div>
+           </div>` : ''}
            <div class="action-icon delete" data-id="${s.id}" title="Delete Session">
              <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
            </div>`);
     return `
-      <tr class="record-row ${isSelected ? 'is-selected' : ''}" data-session-id="${s.id}" title="View session details">
+      <tr class="record-row ${isSelected ? 'is-selected' : ''}" data-session-id="${s.id}" title="${s.status === 'denied' ? 'View denial information' : 'View session details'}">
         <td class="selection-column" onclick="event.stopPropagation()">
           <input type="checkbox" class="record-checkbox row-select-checkbox" data-id="${s.id}" aria-label="Select session ${escapeHtml(s.session_code)}" ${isSelected ? 'checked' : ''} ${selectable ? '' : 'disabled title="Active sessions cannot be deleted"'}>
         </td>
@@ -204,7 +206,14 @@ function attachRowClickEvents() {
 function rowClickHandler(e) {
   if (e.target.closest('.action-icon, .record-checkbox')) return;
   const session = sessionsData.find(s => Number(s.id) === Number(e.currentTarget.dataset.sessionId));
-  if (session) showSessionDetails(session);
+  if (!session) return;
+
+  if (session.status === 'denied') {
+    showDeniedInfo(session);
+    return;
+  }
+
+  showSessionDetails(session);
 }
 
 function attachActionEvents() {
@@ -441,7 +450,7 @@ function showSessionDetails(session) {
   const modalBody = document.getElementById('detailsModalBody');
   document.getElementById('detailsModalTitle').textContent = session.status === 'active'
     ? 'Live Session Details'
-    : (session.status === 'scheduled' ? 'Scheduled Session Details' : 'Session Details');
+    : (session.status === 'scheduled' ? 'Scheduled Session Details' : (session.status === 'denied' ? 'Denied Session Details' : 'Session Details'));
   let details = session.detail;
   if (!details || typeof details !== 'object' || Object.keys(details).length === 0) {
     modalBody.innerHTML = '<div style="text-align:center; padding:20px;">No detailed data available for this session.</div>';
@@ -560,6 +569,42 @@ function showSessionDetails(session) {
   modal.classList.add('active');
 }
 
+function showDeniedInfo(session) {
+  const modal = document.getElementById('deniedInfoModal');
+  const modalBody = document.getElementById('deniedInfoModalBody');
+  const scheduledAt = formatDateTime(session.start_time);
+  const reason = session.latest_schedule_log?.error_message
+    || 'This session was denied because the assigned camera was unreachable when the scheduled counting window started.';
+
+  modalBody.innerHTML = `
+    <div class="denied-info-content">
+      <div class="denied-info-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+      </div>
+      <div>
+        <div class="denied-info-heading">Automatic counting did not start</div>
+        <p class="denied-info-message">${escapeHtml(reason)}</p>
+      </div>
+    </div>
+    <dl class="denied-info-grid">
+      <div><dt>Session ID</dt><dd>${escapeHtml(session.session_code)}</dd></div>
+      <div><dt>Camera</dt><dd>${escapeHtml(session.camera_name)}</dd></div>
+      <div><dt>Scheduled Date</dt><dd>${escapeHtml(scheduledAt.date)}</dd></div>
+      <div><dt>Scheduled Time</dt><dd>${escapeHtml(scheduledAt.time)}</dd></div>
+    </dl>
+    <div class="denied-info-actions">
+      <button type="button" class="btn-primary" id="acknowledgeDeniedInfoBtn">Okay</button>
+    </div>
+  `;
+
+  modal.classList.add('active');
+  document.getElementById('acknowledgeDeniedInfoBtn')?.addEventListener('click', closeDeniedInfoModal);
+}
+
+function closeDeniedInfoModal() {
+  document.getElementById('deniedInfoModal')?.classList.remove('active');
+}
+
 const searchInput = document.getElementById('searchInput');
 const startDateFilter = document.getElementById('startDateFilter');
 const endDateFilter = document.getElementById('endDateFilter');
@@ -676,6 +721,12 @@ const closeDetailsModal = () => {
 document.getElementById('closeDetailsModalBtn').addEventListener('click', closeDetailsModal);
 detailsModal.addEventListener('click', (e) => { if (e.target === detailsModal) closeDetailsModal(); });
 
+const deniedInfoModal = document.getElementById('deniedInfoModal');
+document.getElementById('closeDeniedInfoModalBtn').addEventListener('click', closeDeniedInfoModal);
+deniedInfoModal.addEventListener('click', (e) => {
+  if (e.target === deniedInfoModal) closeDeniedInfoModal();
+});
+
 let recordsRefreshInProgress = false;
 
 async function refreshAutoRecords() {
@@ -704,7 +755,10 @@ async function refreshAutoRecords() {
           session => Number(session.id) === Number(activeDetailsSessionId)
         );
 
-        if (updatedSession) {
+        if (updatedSession?.status === 'denied') {
+          closeDetailsModal();
+          showDeniedInfo(updatedSession);
+        } else if (updatedSession) {
           showSessionDetails(updatedSession);
         } else {
           closeDetailsModal();
@@ -788,3 +842,19 @@ function connectSupabaseRealtime() {
 }
 
 connectSupabaseRealtime();
+
+// Laravel owns the scheduled -> active/denied lifecycle decision. This
+// authenticated fallback lets it evaluate the exact start time even when no
+// database change exists yet. Supabase Realtime remains the instant path for
+// Swift count uploads and subsequent status changes.
+const recordsLifecycleTimer = window.setInterval(() => {
+  if (!document.hidden) refreshAutoRecords();
+}, 2000);
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshAutoRecords();
+});
+
+window.addEventListener('beforeunload', () => {
+  window.clearInterval(recordsLifecycleTimer);
+}, { once: true });

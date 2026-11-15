@@ -62,7 +62,7 @@ class AutoSessionLifecycleService
     {
         DB::transaction(function () use ($id) {
             $session = AutoSession::query()
-                ->with('schedule')
+                ->with(['schedule', 'camera'])
                 ->lockForUpdate()
                 ->find($id);
 
@@ -79,6 +79,24 @@ class AutoSessionLifecycleService
                         'status' => 'failed',
                         'completed_at' => $session->end_time,
                         'error_message' => 'The camera did not start before the scheduled counting window ended.',
+                    ]);
+
+                if ($session->schedule?->recurrence === 'once') {
+                    $session->schedule->update(['is_active' => false]);
+                }
+
+                return;
+            }
+
+            if (strtolower((string) $session->camera?->status) !== 'online') {
+                $session->update(['status' => 'denied']);
+                ScheduleLog::query()
+                    ->where('auto_session_id', $session->id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'failed',
+                        'completed_at' => now(),
+                        'error_message' => 'Session denied because the assigned camera is unreachable.',
                     ]);
 
                 if ($session->schedule?->recurrence === 'once') {

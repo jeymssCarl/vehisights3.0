@@ -127,7 +127,7 @@ function updateCameraAvailability() {
   const isOnline = selected.status === 'online';
   notice.textContent = isOnline
     ? 'Camera is reachable from its desktop station.'
-    : 'Camera is unreachable. You may still schedule it, but counting starts only after its desktop station reconnects.';
+    : 'Camera is unreachable. You may still schedule it, but the session will be denied if the camera is still unreachable at its start time.';
   notice.classList.toggle('offline-camera-notice', !isOnline);
   notice.classList.toggle('online-camera-notice', isOnline);
 }
@@ -165,7 +165,10 @@ async function refreshCameras() {
 
 function connectCameraRealtime() {
   const url = import.meta.env.VITE_SUPABASE_URL;
-  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  // Older VehiSights deployments call this an anon key. Supporting both
+  // names avoids silently losing Realtime updates after a frontend rebuild.
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   if (!url || !publishableKey) {
     console.warn('Supabase Realtime is not configured; camera availability will not update automatically.');
@@ -195,9 +198,32 @@ function connectCameraRealtime() {
       }
     )
     .subscribe(status => {
-      if (status === 'SUBSCRIBED') console.info('Supabase Realtime connected for scheduling camera status.');
+      if (status === 'SUBSCRIBED') {
+        console.info('Supabase Realtime connected for scheduling camera status.');
+        // Load the current authoritative status after the channel is ready;
+        // every later change is applied directly by the Realtime callback.
+        refreshCameras();
+      }
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('Supabase Realtime connection failed for scheduling camera status:', status);
+      }
     });
 }
+
+// Realtime is the fast path. This short authenticated refresh is the fallback
+// when browser Realtime is temporarily blocked or reconnecting, so the camera
+// dropdown never requires a page reload to show online/offline changes.
+const cameraRefreshTimer = window.setInterval(() => {
+  if (!document.hidden) refreshCameras();
+}, 2000);
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshCameras();
+});
+
+window.addEventListener('beforeunload', () => {
+  window.clearInterval(cameraRefreshTimer);
+}, { once: true });
 
 function updateTimeConstraints(setSafeDefault = false) {
   const now = manilaDateTime();

@@ -53,6 +53,11 @@ class AutoSession extends Model
         return $this->belongsTo(Schedule::class);
     }
 
+    public function latestScheduleLog()
+    {
+        return $this->hasOne(ScheduleLog::class, 'auto_session_id')->latestOfMany();
+    }
+
     public function camera()
     {
         return $this->belongsTo(Camera::class);
