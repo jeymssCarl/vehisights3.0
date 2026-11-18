@@ -66,6 +66,7 @@
             <input type="date" id="endDateFilter" class="date-filter-input" aria-label="End date">
             <button type="button" id="applyDateFilterBtn" class="btn-apply-filter">Apply Filter</button>
             <button type="button" id="todayFilterBtn" class="btn-today-filter">Today</button>
+            <button type="button" id="scheduledFilterBtn" class="btn-today-filter">Scheduled</button>
           </div>
         </div>
         <div class="record-delete-actions">

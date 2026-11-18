@@ -44,4 +44,33 @@ class ActivityNotificationService
             ]);
         }
     }
+
+    public static function sendSystem(string $title, string $message, string $url, string $category, string $action, ?int $entityId = null): void
+    {
+        try {
+            $recipients = User::query()
+                ->where('is_active', true)
+                ->get();
+
+            if ($recipients->isEmpty()) {
+                return;
+            }
+
+            Notification::send($recipients, new SystemActivityNotification([
+                'title' => $title,
+                'message' => $message,
+                'url' => $url,
+                'category' => $category,
+                'action' => $action,
+                'entity_id' => $entityId,
+                'actor_id' => null,
+                'actor_name' => 'VehiSights',
+            ]));
+        } catch (\Throwable $exception) {
+            Log::warning('System notification could not be delivered.', [
+                'title' => $title,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
 }

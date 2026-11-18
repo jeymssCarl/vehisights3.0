@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ActivityNotificationService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -37,6 +38,37 @@ class AutoSession extends Model
         'end_time' => 'datetime',
         'has_median' => 'boolean',
     ];
+
+    protected static function booted(): void
+    {
+        static::updated(function (AutoSession $session) {
+            if (! $session->wasChanged('status')) {
+                return;
+            }
+
+            if ($session->status === 'denied') {
+                ActivityNotificationService::sendSystem(
+                    'Automatic session denied',
+                    $session->session_code.' was denied because its assigned camera was unreachable at the scheduled start time.',
+                    '/auto-records?session='.$session->id,
+                    'auto_session',
+                    'denied',
+                    $session->id
+                );
+            }
+
+            if ($session->status === 'ended' && $session->getOriginal('status') === 'active') {
+                ActivityNotificationService::sendSystem(
+                    'Automatic session completed',
+                    $session->session_code.' finished counting and its final record is ready.',
+                    '/auto-records?session='.$session->id,
+                    'auto_session',
+                    'completed',
+                    $session->id
+                );
+            }
+        });
+    }
 
     public function user()
     {

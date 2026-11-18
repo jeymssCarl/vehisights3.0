@@ -328,6 +328,10 @@ body {
   color: #8f1d1d;
   font: 700 24px/1 system-ui, sans-serif;
 }
+.ui-notice-overlay[data-tone="success"] .ui-notice-icon {
+  background: #eaf7ee;
+  color: #168344;
+}
 
 .ui-notice-modal h2 { margin: 0 0 9px; color: #202124; font-size: 20px; }
 .ui-notice-modal p { margin: 0 auto 24px; color: #6f6b68; font-size: 14px; line-height: 1.6; }

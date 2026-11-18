@@ -437,7 +437,7 @@ class AutoRecordsController extends Controller
 
                     $completedAt = $session->end_time ?? now();
 
-                    ScheduleLog::query()
+                    $updatedLogs = ScheduleLog::query()
                         ->where('auto_session_id', $session->id)
                         ->whereIn('status', ['pending', 'running'])
                         ->update([
@@ -453,6 +453,17 @@ class AutoRecordsController extends Controller
                     $session->camera?->update(['last_detection_at' => $completedAt]);
 
                     app(TrafficHistorySyncService::class)->syncAuto($session, $session->detail);
+
+                    if ($updatedLogs > 0) {
+                        ActivityNotificationService::sendSystem(
+                            'Automatic session completed',
+                            $session->session_code.' finished counting and its final record is ready.',
+                            '/auto-records?session='.$session->id,
+                            'auto_session',
+                            'completed',
+                            $session->id
+                        );
+                    }
                 });
             });
     }
@@ -479,7 +490,7 @@ class AutoRecordsController extends Controller
                         return;
                     }
 
-                    ScheduleLog::query()
+                    $updatedLogs = ScheduleLog::query()
                         ->where('auto_session_id', $session->id)
                         ->whereIn('status', ['pending', 'running'])
                         ->update([
@@ -490,6 +501,17 @@ class AutoRecordsController extends Controller
 
                     if ($session->schedule?->recurrence === 'once') {
                         $session->schedule->update(['is_active' => false]);
+                    }
+
+                    if ($updatedLogs > 0) {
+                        ActivityNotificationService::sendSystem(
+                            'Automatic session denied',
+                            $session->session_code.' was denied because its assigned camera was unreachable at the scheduled start time.',
+                            '/auto-records?session='.$session->id,
+                            'auto_session',
+                            'denied',
+                            $session->id
+                        );
                     }
                 });
             });

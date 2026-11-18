@@ -87,7 +87,7 @@ class DashboardController extends Controller
         $activeSessions = $this->activeSessions();
 
         // Recent auto counts
-        $recentAuto = AutoSession::with('detail')->where('status', 'ended')->whereHas('detail')->whereBetween('start_time', [$start, $end])->latest('end_time')->limit(10)->get()->map(function ($a) {
+        $recentAuto = AutoSession::with('detail')->where('status', 'ended')->whereHas('detail')->whereBetween('start_time', [$start, $end])->latest('end_time')->limit(4)->get()->map(function ($a) {
             return ['time' => Carbon::parse($a->start_time)->format('H:i'), 'camera' => $a->camera_name, 'pcu' => $a->detail->total_pcu ?? 0, 'los' => $a->detail->los ?? '?'];
         });
 
@@ -110,7 +110,7 @@ class DashboardController extends Controller
             ->with('detail')
             ->where('status', 'active')
             ->latest('start_time')
-            ->limit(5)
+            ->limit(4)
             ->get()
             ->map(fn (AutoSession $session) => [
                 'code' => $session->session_code,

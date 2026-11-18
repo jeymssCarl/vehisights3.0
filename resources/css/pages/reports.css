@@ -467,6 +467,54 @@ body {
   background: none; border: none; font-size: 1.5rem;
   cursor: pointer; color: var(--text-muted);
 }
+.email-report-modal .modal {
+  width: min(92vw, 520px);
+  max-width: 520px;
+  padding: 24px;
+}
+.email-report-modal .modal-header { align-items: flex-start; }
+.email-report-subtitle {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.email-report-field { display: flex; flex-direction: column; gap: 7px; }
+.email-report-field label {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.email-report-field input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  font: inherit;
+}
+.email-report-field input:focus {
+  outline: none;
+  border-color: var(--maroon);
+  box-shadow: 0 0 0 3px var(--maroon-dim);
+}
+.email-report-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.email-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
 .survey-form {
   overflow-x: auto;
   padding: 16px;

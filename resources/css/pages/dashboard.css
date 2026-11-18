@@ -352,6 +352,27 @@ input[type="date"]:focus {
 .bottom-row > .panel,
 .dashboard-data-region { min-width: 0; }
 .mid-row > .panel { height: 342px; }
+.bottom-row > .panel {
+  display: flex;
+  height: 342px;
+  min-height: 342px;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bottom-row > .panel .panel-header { flex: 0 0 auto; }
+#activeSessionsContainer,
+#recentAutoContainer {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+#activeSessionsContainer .dashboard-empty-state,
+#recentAutoContainer .dashboard-empty-state {
+  height: 100%;
+  min-height: 0;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
 .mid-row > .panel:first-child { display: flex; flex-direction: column; }
 .mid-row > .panel:first-child .chart-wrap { flex: 1 1 260px; }
 .mid-row > .panel:nth-child(2) { display: flex; flex-direction: column; }

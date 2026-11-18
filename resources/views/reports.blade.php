@@ -97,6 +97,7 @@
         <button class="btn-secondary" id="generateFormBtn">Generate Survey Form</button>
         <button class="btn-secondary" id="exportCsvBtn">Export CSV</button>
         <button class="btn-secondary" id="exportPdfBtn">Export PDF</button>
+        <button class="btn-secondary" id="emailPdfBtn">Email PDF</button>
         <div class="filter-help">Exports contain only records from the selected period and station/road.</div>
       </div>
 
@@ -205,6 +206,30 @@
     <div class="export-buttons" style="margin-top:20px;">
       <button class="btn-primary" id="printSurveyBtn">Print / Save as PDF</button>
     </div>
+  </div>
+</div>
+
+<!-- EMAIL PDF MODAL -->
+<div id="emailReportModal" class="modal-overlay email-report-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailReportTitle">
+    <div class="modal-header">
+      <div>
+        <h3 id="emailReportTitle">Email Survey PDF</h3>
+        <p class="email-report-subtitle">The PDF will use the currently selected report period and station.</p>
+      </div>
+      <button class="close-modal" id="closeEmailReportModalBtn" type="button" aria-label="Close email report form">&times;</button>
+    </div>
+    <form id="emailReportForm">
+      <div class="email-report-field">
+        <label for="recipientEmail">Recipient Email</label>
+        <input type="email" id="recipientEmail" name="recipient_email" maxlength="254" autocomplete="email" placeholder="name@example.com" required>
+      </div>
+      <div class="email-report-summary" id="emailReportSummary"></div>
+      <div class="email-report-actions">
+        <button type="button" class="btn-secondary" id="cancelEmailReportBtn">Cancel</button>
+        <button type="submit" class="btn-primary" id="sendEmailReportBtn">Send PDF</button>
+      </div>
+    </form>
   </div>
 </div>
 

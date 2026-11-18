@@ -89,4 +89,43 @@
     body { margin: 0; background: #fff; }
     .report-document { min-width: 0; }
   }
+  /* DomPDF output must never inherit the wide interactive preview sizing. */
+  .pdf-output { margin: 0; padding: 0; background: #fff; }
+  .pdf-output .report-document {
+    width: 100%;
+    min-width: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    font-size: 8px;
+    line-height: 1.25;
+  }
+  .pdf-output .report-masthead { margin-bottom: 9px; }
+  .pdf-output .report-title { margin-top: 6px; font-size: 15px; }
+  .pdf-output .report-meta { margin-bottom: 7px; }
+  .pdf-output .report-meta td { padding: 4px 6px; }
+  .pdf-output .report-summary { margin-bottom: 7px; }
+  .pdf-output .report-summary td { padding: 4px 6px; }
+  .pdf-output .report-summary-value { font-size: 10px; }
+  .pdf-output .report-data {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 5.2px;
+  }
+  .pdf-output .report-data th {
+    padding: 3px 1px;
+    font-size: 4.7px;
+    line-height: 1.1;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+  .pdf-output .report-data td {
+    padding: 3px 1px;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+  .pdf-output .report-data .report-station { padding-left: 3px; }
+  .pdf-output .report-source { font-size: 4.8px; }
+  .pdf-output .report-footer { margin-top: 7px; font-size: 5.5px; }
 </style>

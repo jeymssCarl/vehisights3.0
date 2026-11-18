@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\VehicleCountSurveyMail;
 use App\Models\AutoSession;
 use App\Models\ManualCount;
 use App\Models\Schedule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ReportController extends Controller
 {
@@ -106,6 +109,43 @@ class ReportController extends Controller
         return Pdf::loadView('reports.pdf', $report)
             ->setPaper('a4', 'landscape')
             ->download($filename);
+    }
+
+    public function emailPdf(Request $request)
+    {
+        $recipient = $request->validate([
+            'recipient_email' => ['required', 'email:rfc', 'max:254'],
+        ])['recipient_email'];
+
+        [$startDate, $endDate, $station] = $this->resolveFilters($request, $this->stationOptions(), true);
+        $report = $this->buildReportData($startDate, $endDate, $station);
+
+        if ((int) $report['totalRecords'] === 0) {
+            throw ValidationException::withMessages([
+                'recipient_email' => 'There are no completed records to send for the selected period and station.',
+            ]);
+        }
+
+        $filename = "vehisights_vehicle_count_{$startDate}_to_{$endDate}.pdf";
+        $pdfContent = Pdf::loadView('reports.pdf', $report)
+            ->setPaper('a4', 'landscape')
+            ->output();
+
+        try {
+            Mail::to($recipient)->send(new VehicleCountSurveyMail($report, $pdfContent, $filename));
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The PDF was generated, but the email could not be sent. Check the Gmail SMTP settings and try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'The survey PDF was sent to '.$recipient.'.',
+        ]);
     }
 
     private function resolveFilters(Request $request, $stationOptions = null, bool $strict = false): array

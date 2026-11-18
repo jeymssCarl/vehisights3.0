@@ -116,6 +116,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/reports', [ReportController::class, 'index'])->name('reports');
     Route::post('/reports/export-csv', [ReportController::class, 'exportCsv'])->name('reports.export-csv');
     Route::post('/reports/generate-pdf', [ReportController::class, 'generatePdf'])->name('reports.generate-pdf');
+    Route::post('/reports/email-pdf', [ReportController::class, 'emailPdf'])->name('reports.email-pdf');
 
     // Cameras, Admin pages
     Route::get('/cameras', function () {

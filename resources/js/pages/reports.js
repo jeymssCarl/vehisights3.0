@@ -260,6 +260,73 @@ document.getElementById('exportPdfBtn').addEventListener('click', event => {
   downloadReport('/reports/generate-pdf', 'pdf', event.currentTarget);
 });
 
+const emailReportModal = document.getElementById('emailReportModal');
+const recipientEmailInput = document.getElementById('recipientEmail');
+const sendEmailReportBtn = document.getElementById('sendEmailReportBtn');
+
+function closeEmailReportModal() {
+  emailReportModal.classList.remove('active');
+  sendEmailReportBtn.disabled = false;
+  sendEmailReportBtn.textContent = 'Send PDF';
+}
+
+document.getElementById('emailPdfBtn').addEventListener('click', () => {
+  if (!filtersAreValid()) return;
+
+  const { startDate, endDate, station } = selectedFilters();
+  document.getElementById('emailReportSummary').textContent = `${startDate} to ${endDate} · ${station === 'all' ? 'All Stations / Roads' : station}`;
+  emailReportModal.classList.add('active');
+  window.setTimeout(() => recipientEmailInput.focus(), 100);
+});
+
+document.getElementById('emailReportForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!filtersAreValid() || !recipientEmailInput.reportValidity()) return;
+
+  const { startDate, endDate, station } = selectedFilters();
+  const formData = new FormData();
+  formData.append('recipient_email', recipientEmailInput.value.trim());
+  formData.append('start_date', startDate);
+  formData.append('end_date', endDate);
+  formData.append('station', station);
+
+  sendEmailReportBtn.disabled = true;
+  sendEmailReportBtn.textContent = 'Sending…';
+
+  try {
+    const response = await fetch('/reports/email-pdf', {
+      method: 'POST',
+      headers: {
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+      body: formData,
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      const validationMessage = Object.values(result.errors || {}).flat()[0];
+      throw new Error(validationMessage || result.message || 'The survey PDF could not be sent.');
+    }
+
+    closeEmailReportModal();
+    recipientEmailInput.value = '';
+    window.VehiSightsUI.showNotice({ title: 'Survey PDF sent', message: result.message, tone: 'success' });
+  } catch (error) {
+    window.VehiSightsUI.showNotice({ title: 'Email failed', message: error.message || 'The survey PDF could not be sent.' });
+  } finally {
+    sendEmailReportBtn.disabled = false;
+    sendEmailReportBtn.textContent = 'Send PDF';
+  }
+});
+
+document.getElementById('closeEmailReportModalBtn').addEventListener('click', closeEmailReportModal);
+document.getElementById('cancelEmailReportBtn').addEventListener('click', closeEmailReportModal);
+emailReportModal.addEventListener('click', event => {
+  if (event.target === emailReportModal) closeEmailReportModal();
+});
+
 document.getElementById('generateFormBtn').addEventListener('click', () => {
   if (!filtersAreValid()) return;
 

@@ -32,6 +32,7 @@ const showNotice = ({ title = 'Something needs your attention', message = '', to
     }
 
     overlay.dataset.tone = tone;
+    overlay.querySelector('.ui-notice-icon').textContent = tone === 'success' ? '✓' : '!';
     overlay.querySelector('#uiNoticeTitle').textContent = title;
     overlay.querySelector('#uiNoticeMessage').textContent = message;
     overlay.classList.add('active');
@@ -263,6 +264,7 @@ const initializeNotificationCenter = () => {
     const list = panel.querySelector('.notification-list');
     const readAll = panel.querySelector('.notification-read-all');
     let loading = false;
+    let currentUnreadCount = 0;
 
     const updateBadge = count => {
         const total = Number(count) || 0;
@@ -274,7 +276,8 @@ const initializeNotificationCenter = () => {
     const render = payload => {
         list.replaceChildren();
         const notifications = payload.notifications || [];
-        updateBadge(payload.unread_count);
+        currentUnreadCount = Number(payload.unread_count) || 0;
+        updateBadge(currentUnreadCount);
         readAll.disabled = !payload.unread_count;
 
         if (!notifications.length) {
@@ -296,12 +299,22 @@ const initializeNotificationCenter = () => {
             item.querySelector('small').textContent = relativeTime(notification.created_at);
             item.addEventListener('click', async () => {
                 if (!notification.read_at) {
+                    notification.read_at = new Date().toISOString();
+                    item.classList.remove('unread');
+                    currentUnreadCount = Math.max(0, currentUnreadCount - 1);
+                    updateBadge(currentUnreadCount);
+                    readAll.disabled = currentUnreadCount === 0;
+
                     await fetch(`/notifications/${notification.id}/read`, {
                         method: 'PATCH',
                         headers: { 'X-CSRF-TOKEN': csrfToken(), 'Accept': 'application/json' }
                     }).catch(() => null);
                 }
-                if (data.url) window.location.href = data.url;
+
+                const targetUrl = data.category === 'auto_session' && data.entity_id
+                    ? `/auto-records?session=${encodeURIComponent(data.entity_id)}`
+                    : data.url;
+                if (targetUrl) window.location.href = targetUrl;
             });
             list.appendChild(item);
         });
@@ -323,12 +336,29 @@ const initializeNotificationCenter = () => {
         }
     };
 
-    const toggle = event => {
+    const markVisibleNotificationsRead = async () => {
+        if (currentUnreadCount === 0) return;
+
+        currentUnreadCount = 0;
+        updateBadge(0);
+        readAll.disabled = true;
+        list.querySelectorAll('.notification-item.unread').forEach(item => item.classList.remove('unread'));
+
+        await fetch('/notifications/read-all', {
+            method: 'PATCH',
+            headers: { 'X-CSRF-TOKEN': csrfToken(), 'Accept': 'application/json' }
+        }).catch(() => null);
+    };
+
+    const toggle = async event => {
         event?.stopPropagation();
         const open = !panel.classList.contains('active');
         panel.classList.toggle('active', open);
         bell.setAttribute('aria-expanded', String(open));
-        if (open) load();
+        if (open) {
+            await load();
+            await markVisibleNotificationsRead();
+        }
     };
 
     bell.addEventListener('click', toggle);
@@ -358,7 +388,7 @@ const initializeNotificationCenter = () => {
     });
 
     load();
-    window.setInterval(load, 15000);
+    window.setInterval(load, 5000);
 };
 
 const initializeEnhancements = () => {

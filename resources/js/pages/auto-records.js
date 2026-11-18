@@ -18,6 +18,8 @@ const selectedSessionIds = new Set();
 let visibleSelectableIds = [];
 const urlState = new URLSearchParams(window.location.search);
 const isValidDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+const requestedSessionId = Number(urlState.get('session'));
+let deepLinkHandled = false;
 
 function getManilaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -36,8 +38,24 @@ function getManilaToday() {
 // Philippine time. The browser-side value also protects cached page payloads.
 const todayInManila = getManilaToday();
 
-let customStartDate = isValidDate(urlState.get('start_date')) ? urlState.get('start_date') : todayInManila;
-let customEndDate = isValidDate(urlState.get('end_date')) ? urlState.get('end_date') : todayInManila;
+function availableDateBounds() {
+  const dates = sessionsData
+    .map(session => session.start_time ? formatDateTime(session.start_time).date : null)
+    .filter(isValidDate)
+    .sort();
+
+  return {
+    start: dates[0] || todayInManila,
+    end: dates[dates.length - 1] || todayInManila,
+  };
+}
+
+const hasExplicitDateRange = isValidDate(urlState.get('start_date')) && isValidDate(urlState.get('end_date'));
+let showScheduledOnly = urlState.get('view') === 'scheduled';
+let usesAllRecordsRange = !hasExplicitDateRange || showScheduledOnly || urlState.get('view') === 'all';
+const initialDateBounds = availableDateBounds();
+let customStartDate = hasExplicitDateRange ? urlState.get('start_date') : initialDateBounds.start;
+let customEndDate = hasExplicitDateRange ? urlState.get('end_date') : initialDateBounds.end;
 if (customStartDate > customEndDate) customEndDate = customStartDate;
 
 function filterByDate(session) {
@@ -135,9 +153,14 @@ function updateSelectionControls() {
 }
 
 function renderTable() {
+  const scheduledFilterButton = document.getElementById('scheduledFilterBtn');
+  scheduledFilterButton?.classList.toggle('is-active', showScheduledOnly);
+  scheduledFilterButton?.setAttribute('aria-pressed', String(showScheduledOnly));
+
   const searchTerm = document.getElementById('searchInput').value.toLowerCase();
   let filtered = sessionsData.filter(s => {
     if (searchTerm && !s.camera_name?.toLowerCase().includes(searchTerm) && !s.ip_address?.toLowerCase().includes(searchTerm) && !s.location?.toLowerCase().includes(searchTerm)) return false;
+    if (showScheduledOnly) return s.status === 'scheduled';
     if (!filterByDate(s)) return false;
     return true;
   });
@@ -605,6 +628,38 @@ function closeDeniedInfoModal() {
   document.getElementById('deniedInfoModal')?.classList.remove('active');
 }
 
+function revealRequestedSession() {
+  if (deepLinkHandled || !Number.isFinite(requestedSessionId) || requestedSessionId <= 0) return;
+
+  const session = sessionsData.find(item => Number(item.id) === requestedSessionId);
+  if (!session) return;
+
+  const sessionDate = formatDateTime(session.start_time).date;
+  if (isValidDate(sessionDate)) {
+    showScheduledOnly = false;
+    usesAllRecordsRange = false;
+    customStartDate = sessionDate;
+    customEndDate = sessionDate;
+    startDateFilter.value = sessionDate;
+    endDateFilter.value = sessionDate;
+  }
+
+  searchInput.value = '';
+  deepLinkHandled = true;
+  syncFilterStateToUrl();
+  renderTable();
+
+  window.requestAnimationFrame(() => {
+    const row = document.querySelector(`[data-session-id="${requestedSessionId}"]`);
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row?.classList.add('notification-target-row');
+    window.setTimeout(() => row?.classList.remove('notification-target-row'), 3500);
+  });
+
+  if (session.status === 'denied') showDeniedInfo(session);
+  else showSessionDetails(session);
+}
+
 const searchInput = document.getElementById('searchInput');
 const startDateFilter = document.getElementById('startDateFilter');
 const endDateFilter = document.getElementById('endDateFilter');
@@ -615,9 +670,16 @@ searchInput.value = urlState.get('q') || '';
 
 function syncFilterStateToUrl() {
   const params = new URLSearchParams();
-  params.set('start_date', customStartDate);
-  params.set('end_date', customEndDate);
+  if (showScheduledOnly) {
+    params.set('view', 'scheduled');
+  } else if (usesAllRecordsRange) {
+    params.set('view', 'all');
+  } else {
+    params.set('start_date', customStartDate);
+    params.set('end_date', customEndDate);
+  }
   if (searchInput.value.trim()) params.set('q', searchInput.value.trim());
+  if (Number.isFinite(requestedSessionId) && requestedSessionId > 0) params.set('session', String(requestedSessionId));
   window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
 }
 
@@ -631,6 +693,8 @@ function applyDateRange() {
     endDateFilter.reportValidity();
     return;
   }
+  showScheduledOnly = false;
+  usesAllRecordsRange = false;
   customStartDate = startDate;
   customEndDate = endDate;
   syncFilterStateToUrl();
@@ -639,10 +703,24 @@ function applyDateRange() {
 
 document.getElementById('applyDateFilterBtn').addEventListener('click', applyDateRange);
 document.getElementById('todayFilterBtn').addEventListener('click', () => {
+  showScheduledOnly = false;
+  usesAllRecordsRange = false;
   customStartDate = todayInManila;
   customEndDate = todayInManila;
   startDateFilter.value = todayInManila;
   endDateFilter.value = todayInManila;
+  endDateFilter.setCustomValidity('');
+  syncFilterStateToUrl();
+  renderTable();
+});
+document.getElementById('scheduledFilterBtn').addEventListener('click', () => {
+  showScheduledOnly = true;
+  usesAllRecordsRange = true;
+  const bounds = availableDateBounds();
+  customStartDate = bounds.start;
+  customEndDate = bounds.end;
+  startDateFilter.value = customStartDate;
+  endDateFilter.value = customEndDate;
   endDateFilter.setCustomValidity('');
   syncFilterStateToUrl();
   renderTable();
@@ -660,6 +738,7 @@ document.getElementById('selectAllVisible').addEventListener('change', event => 
   renderTable();
 });
 renderTable();
+revealRequestedSession();
 
 // Edit modal
 const editModal = document.getElementById('editModal');
@@ -748,7 +827,17 @@ async function refreshAutoRecords() {
 
     if (result.success) {
       sessionsData = result.sessions;
+
+      if (usesAllRecordsRange) {
+        const bounds = availableDateBounds();
+        customStartDate = bounds.start;
+        customEndDate = bounds.end;
+        startDateFilter.value = customStartDate;
+        endDateFilter.value = customEndDate;
+      }
+
       renderTable();
+      revealRequestedSession();
 
       if (activeDetailsSessionId !== null) {
         const updatedSession = sessionsData.find(
